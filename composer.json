@@ -1,0 +1,39 @@
+{
+    "name": "componenta/app",
+    "description": "Application runtime contracts, bootstrap, discovery, and container support for Componenta",
+    "type": "library",
+    "license": "MIT",
+    "require": {
+        "php": "^8.4",
+        "componenta/class-finder": "^1.0",
+        "componenta/config": "^1.0",
+        "componenta/di": "^1.0",
+        "componenta/path-resolver": "^1.0",
+        "componenta/reflection": "^1.0",
+        "componenta/scope": "^1.0",
+        "componenta/tokenizer": "^1.0",
+        "componenta/var-export": "^1.0",
+        "psr/container": "^2.0"
+    },
+    "autoload": {
+        "files": [
+            "src/functions.php"
+        ],
+        "psr-4": {
+            "Componenta\\App\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Componenta\\App\\Tests\\": "tests/"
+        }
+    },
+    "extra": {
+        "componenta": {
+            "config-providers": [
+                "Componenta\\App\\ConfigProvider"
+            ]
+        }
+    },
+    "minimum-stability": "stable"
+}
