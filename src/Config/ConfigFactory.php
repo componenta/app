@@ -26,6 +26,7 @@ final class ConfigFactory
         PathResolverInterface $paths,
         ConfigDefinitionInterface|callable $definition,
         ?Environment $environment = null,
+        bool $loadCachedCompileDelta = true,
     ): ConfigFactoryResult {
         $bootstrapCache = CacheLayout::bootstrap($paths);
         $env = $environment;
@@ -61,7 +62,9 @@ final class ConfigFactory
                 cacheFile:    $cache->devCompile,
                 baselineFile: $discoveryCacheFile,
             );
-            $cachedDelta = $compileCache->load();
+            if ($loadCachedCompileDelta) {
+                $cachedDelta = $compileCache->load();
+            }
         }
 
         $providers = self::prepareProviders(
