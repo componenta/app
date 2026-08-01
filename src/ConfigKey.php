@@ -62,12 +62,6 @@ class ConfigKey extends \Componenta\Config\ConfigKey
     public const string COMPILE_CACHE_CONTRIBUTORS = 'compile.cache_contributors';
 
     /**
-     * Build-derived flag indicating that production class listeners still
-     * require runtime replay after compiled maps are restored.
-     */
-    public const string RUNTIME_DISCOVERY = 'discovery.runtime';
-
-    /**
      * Cache directory paths (relative to PathResolverInterface::baseDir or absolute).
      *
      * Build cache is intentionally not configurable through application config:

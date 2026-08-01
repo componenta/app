@@ -25,14 +25,10 @@ final class ConfigFactory
     public static function create(
         PathResolverInterface $paths,
         ConfigDefinitionInterface|callable $definition,
-        ?Environment $environment = null,
     ): ConfigFactoryResult {
         $bootstrapCache = CacheLayout::bootstrap($paths);
-        $env = $environment;
-        if ($env === null) {
-            $envFromFile = new EnvLoader($paths->baseDir)->load(override: true);
-            $env = $envFromFile ?? Environment::fromGlobals();
-        }
+        $envFromFile = new EnvLoader($paths->baseDir)->load(override: true);
+        $env = $envFromFile ?? Environment::fromGlobals();
 
         if ($env->get('APP_ENV', 'development') !== 'development') {
             $cached = ConfigLoader::loadFromFile($bootstrapCache->config);

@@ -52,11 +52,6 @@ final class ClassDiscoveryBootloader implements BootloaderInterface
         $container = $context->container;
         $config = $container->config;
 
-        $isProduction = $config->environment?->match('APP_ENV', 'production', false) === true;
-        if ($isProduction && $config->get(ConfigKey::RUNTIME_DISCOVERY, true) === false) {
-            return;
-        }
-
         if (($config->has(ListenerRestorer::CACHE_KEY) || $config->has(ListenerRestorer::CACHE_FILE_KEY))
             && $container->has(ListenerRestorer::class)
         ) {
