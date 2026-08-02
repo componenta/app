@@ -41,7 +41,7 @@ composer require componenta/app
 | `componenta/path-resolver` | Дает `PathResolver`, чтобы точки входа разрешали `config/container.php`, кеши и другие файлы относительно корня проекта. |
 | `componenta/config` | Хранит итоговую конфигурацию приложения после загрузки провайдеров. |
 | `componenta/di` | Создает контейнер сервисов и вызывает фабрики, runners, handlers и bootloaders. |
-| `componenta/app-http` | Добавляет HTTP-область запуска, HTTP app adapter, pipeline bootloader и эмиттер PSR-7 ответов. |
+| `componenta/app-http` | Регистрирует HTTP-приложение, загрузчик конвейера и эмиттер PSR-7 ответов. |
 | `componenta/app-console` | Добавляет консольную область запуска, интеграцию Symfony Console и регистрацию команд. |
 | `componenta/websocket-app` | Добавляет WebSocket-область запуска и связывает `componenta/websocket-server` с boot process приложения. |
 | `componenta/router` + `componenta/router-app` | Дают HTTP routing и необязательную компиляцию кеша маршрутов. |
@@ -163,16 +163,18 @@ Production mode:
 
 ## AppFactory и области запуска
 
-`AppFactory` создает приложение для запрошенного `Scope` через adapters, которые добавляют runtime integration packages:
+`AppFactory` получает приложение, зарегистрированное для запрошенного `Scope`.
+Пакеты интеграции среды выполнения добавляют прямое отображение через
+`ConfigKey::APP_BY_SCOPE`:
 
-- HTTP;
-- console;
-- WebSocket;
-- server.
+- `Scope::HTTP->value => Componenta\App\Server\App::class`;
+- `Scope::CLI->value => Componenta\App\Console\App::class`;
+- пакеты WebSocket и серверных сред регистрируют собственные классы приложений.
 
-Базовый пакет определяет scope model и adapter contracts. Конкретные приложения для HTTP, console и WebSocket областей регистрируют `componenta/app-http`, `componenta/app-console` и `componenta/websocket-app`.
-
-`ScopedInterface` и `ScopeInterface` поставляются пакетом `componenta/scope` и выражают, какую область запуска поддерживает объект. Они нужны, чтобы runner сразу отклонял несовместимый application object.
+Базовый пакет содержит `AppFactory`, `AppInterface` и модель областей запуска.
+Отдельного контракта адаптера приложения больше нет. Выбранный сервис должен
+реализовывать `AppInterface`; `AppFactory` проверяет это перед получением
+сервиса из контейнера.
 
 ## Boot Targets
 

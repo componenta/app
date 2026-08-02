@@ -42,10 +42,10 @@ class ConfigKey extends \Componenta\Config\ConfigKey
     public const string BOOT_INVOCATIONS = 'boot.invocations';
 
     /**
-     * Ordered list of app adapter class-strings. Runtime integration packages
-     * append their adapters here instead of replacing the base app factory.
+     * Map of scope values to {@see AppInterface} implementation class-strings.
+     * Runtime packages register the application owning each execution scope.
      */
-    public const string APP_ADAPTERS = 'app.adapters';
+    public const string APP_BY_SCOPE = 'app.by_scope';
 
     /**
      * Ordered list of boot target adapter class-strings. Each adapter wraps an
