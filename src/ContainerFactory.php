@@ -12,6 +12,7 @@ use Componenta\DI\Container;
 use Componenta\DI\ContainerBuilder;
 use Componenta\Stdlib\PathResolverInterface;
 use RuntimeException;
+use Throwable;
 
 final class ContainerFactory
 {
