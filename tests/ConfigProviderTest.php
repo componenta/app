@@ -13,7 +13,6 @@ use Componenta\App\Boot\ClassDiscoveryBootloader;
 use Componenta\App\ConfigKey as AppConfigKey;
 use Componenta\App\ConfigProvider;
 use Componenta\App\Discovery\Compile\CompileCache;
-use Componenta\App\Discovery\Compile\DiPlanBuilder;
 use Componenta\App\Discovery\Compile\DiscoveryCompiler;
 use Componenta\App\Discovery\Compile\DiscoveryCompilerFactory;
 use Componenta\ClassFinder\Compile\ConfigKey as CompileConfigKey;
@@ -21,6 +20,7 @@ use Componenta\App\Discovery\ListenerCompiler;
 use Componenta\App\Discovery\ListenerRestorer;
 use Componenta\ClassFinder\ConfigKey as ClassFinderConfigKey;
 use Componenta\Config\Config;
+use Componenta\Config\ConfigKey as ConfigDependencyKey;
 use Componenta\Config\ContainerValue;
 use Componenta\DI\ConfigKey as DependencyConfigKey;
 use Componenta\Stdlib\PathResolver;
@@ -61,19 +61,8 @@ describe('app ConfigProvider', function () {
             BootMethodInvocation::class,
         ])->and($config[CompileConfigKey::LISTENER_COMPILERS])->toBe([
             BootInvocationCompiler::class,
-        ])->and($config[DependencyConfigKey::DEPENDENCIES][DependencyConfigKey::AUTOWIRES])->toBe([
-            Componenta\App\AppFactory::class,
-            BootMethodInvocation::class,
-            BootInvocationRunner::class,
-            BootInvocationCompiler::class,
-            BootloaderProvider::class,
-            CompiledBootInvocationBootloader::class,
-            DateTimeBootloader::class,
-            DiPlanBuilder::class,
-            ListenerCompiler::class,
-            ListenerRestorer::class,
-            ClassDiscoveryBootloader::class,
-        ])->and($config[DependencyConfigKey::DEPENDENCIES][DependencyConfigKey::FACTORIES])->toHaveKeys([
+        ])->and($config[DependencyConfigKey::DEPENDENCIES])->not->toHaveKey(ConfigDependencyKey::AUTOWIRES)
+            ->and($config[DependencyConfigKey::DEPENDENCIES][DependencyConfigKey::FACTORIES])->toHaveKeys([
             BootTargetFactory::class,
             DiscoveryCompiler::class,
             CompileCache::class,

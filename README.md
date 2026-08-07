@@ -125,8 +125,7 @@ The project config definition should stay declarative: it registers config provi
 - development discovery;
 - development compile deltas;
 - attribute-derived config;
-- DI plans;
-- container factory cache;
+- generated DI entry resolver;
 - route cache;
 - policy descriptors;
 - interceptor descriptors;

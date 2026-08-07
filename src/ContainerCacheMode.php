@@ -9,6 +9,5 @@ enum ContainerCacheMode
     case Auto;
     case Disabled;
     case CacheFile;
-    case FactoryFile;
     case RequireCache;
 }

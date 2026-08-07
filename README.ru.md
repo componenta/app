@@ -136,8 +136,7 @@ Production mode:
 - discovery в разработке;
 - compile deltas в разработке;
 - конфигурации, собранной из атрибутов;
-- DI plans;
-- container factory cache;
+- сгенерированный DI entry resolver;
 - route cache;
 - описания политик;
 - описания перехватчиков;

@@ -7,7 +7,6 @@ namespace Componenta\App\Boot;
 use Componenta\App\ConfigKey;
 use Componenta\App\Discovery\Compile\CompileCache;
 use Componenta\App\Discovery\Compile\CompileCacheContributorInterface;
-use Componenta\App\Discovery\Compile\DiPlanBuilder;
 use Componenta\App\Discovery\ListenerCompiler;
 use Componenta\App\Discovery\ListenerRestorer;
 use Componenta\App\Scope;
@@ -15,9 +14,6 @@ use Componenta\Scope\Scopes;
 use Componenta\ClassFinder\ClassIteratorInterface;
 use Componenta\ClassFinder\ClassListenerNotifier;
 use Componenta\Config\ContainerValue;
-use Componenta\DI\Compile\PlanCompiler;
-use Componenta\DI\Compile\PlanDispatcher;
-use Componenta\DI\ConfigKey as DiConfigKey;
 use RuntimeException;
 use function Componenta\Config\config_merge;
 
@@ -27,7 +23,7 @@ use function Componenta\Config\config_merge;
  * Dev cold: `Discovery` scanned and handed a {@see ClassIteratorInterface}
  * into the container. We fan the iterator through {@see ClassListenerNotifier},
  * then - if a {@see CompileCache} is available - snapshot the full compile
- * output (discovery target map + DI plans) so the next request takes the
+ * output (discovery target map plus package contributions) so the next request takes the
  * warm branch.
  *
  * Dev warm / prod: `ListenerRestorer::CACHE_KEY` is already in config
@@ -81,16 +77,8 @@ final class ClassDiscoveryBootloader implements BootloaderInterface
     {
         $discoveryCache = $container->get(ListenerCompiler::class, ListenerCompiler::class)->compile($iterator);
 
-        $diPlanBuilder = $container->get(DiPlanBuilder::class, DiPlanBuilder::class);
-        $diPlans = $diPlanBuilder->compile($discoveryCache['classes']);
-        $dispatcherMap = $diPlanBuilder->dispatcherMap();
-
         $delta = [
             ListenerRestorer::CACHE_KEY => $discoveryCache,
-            DiConfigKey::DEPENDENCIES   => [
-                PlanCompiler::CONFIG_KEY => $diPlans,
-                PlanDispatcher::CONFIG_KEY => $dispatcherMap,
-            ],
         ];
 
         foreach ($this->compileContributors($container) as $contributor) {

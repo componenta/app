@@ -14,8 +14,7 @@ final class CacheLayout
     public const string CONFIG = 'config.cache.php';
     public const string ROUTES = 'routes.cache.php';
     public const string CONTAINER = 'container.cache.php';
-    public const string CONTAINER_FACTORY = 'container.factory.php';
-    public const string DI_PLANS = 'di-plans.cache.php';
+    public const string CONTAINER_RESOLVER = 'container.resolver.php';
     public const string DISCOVERY = 'discovery.cache.php';
     public const string POLICIES = 'policies.cache.php';
     public const string INTERCEPTORS = 'interceptors.cache.php';
@@ -48,12 +47,8 @@ final class CacheLayout
         get => $this->build(self::CONTAINER);
     }
 
-    public string $containerFactory {
-        get => $this->build(self::CONTAINER_FACTORY);
-    }
-
-    public string $diPlans {
-        get => $this->build(self::DI_PLANS);
+    public string $containerResolver {
+        get => $this->build(self::CONTAINER_RESOLVER);
     }
 
     public string $discovery {

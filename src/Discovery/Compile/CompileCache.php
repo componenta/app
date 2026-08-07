@@ -13,9 +13,8 @@ use Componenta\VarExport\Export;
  *
  * Holds an arbitrary config delta - everything the cold boot decided to
  * precompute in one place: the discovery-target map consumed by
- * {@see \Componenta\App\Discovery\ListenerRestorer}, DI plans consumed by
- * `ParametersResolver`, per-listener maps produced by
- * {@see DiscoveryCompiler} (CQRS locator outputs, etc.). The loader
+ * {@see \Componenta\App\Discovery\ListenerRestorer} and per-listener maps
+ * produced by {@see DiscoveryCompiler} (CQRS locator outputs, etc.). The loader
  * replays it verbatim into the config provider chain; the persister
  * just `var_export`s whatever the boot flow hands it.
  *
