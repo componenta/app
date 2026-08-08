@@ -23,8 +23,8 @@ use RuntimeException;
  * (numeric list entries are concatenated via `config_merge`, so multiple
  * packages contribute without stepping on one another).
  *
- * The command-line entry point (`discovery:compile`) just hands its
- * listeners to this class.
+ * The command-line entry point (`app:build`) hands its finalized listeners
+ * to this class.
  *
  * Listeners without a matching compiler are skipped silently - that is
  * how third-party or `#[DevOnly]` helpers opt out of being serialised.
@@ -74,7 +74,11 @@ final readonly class DiscoveryCompiler
 
             $result = $compiler->compile($listener, $cacheDir);
 
-            if ($result->configKey !== null) {
+            if ($result->configKey !== null
+                && $result->configValue !== []
+                && $result->configValue !== null
+                && $result->configValue !== false
+            ) {
                 $config[$result->configKey] = $result->configValue;
             }
 

@@ -76,13 +76,15 @@ final class ClassDiscoveryBootloader implements BootloaderInterface
     private function persistCompileDelta(ContainerValue $container, ClassIteratorInterface $iterator): void
     {
         $discoveryCache = $container->get(ListenerCompiler::class, ListenerCompiler::class)->compile($iterator);
+        $classes = $discoveryCache['classes'] ?? [];
+        $hasFilteredListeners = isset($discoveryCache['targets']) || isset($discoveryCache['empty_targets']);
 
-        $delta = $discoveryCache['classes'] === [] && $discoveryCache['targets'] === []
+        $delta = $classes === [] && !$hasFilteredListeners
             ? []
             : [ListenerRestorer::CACHE_KEY => $discoveryCache];
 
         foreach ($this->compileContributors($container) as $contributor) {
-            $delta = config_merge($delta, $contributor->compile($discoveryCache['classes']));
+            $delta = config_merge($delta, $contributor->compile($classes));
         }
 
         $container->get(CompileCache::class, CompileCache::class)->persist($delta);

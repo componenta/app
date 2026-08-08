@@ -112,6 +112,44 @@ describe('Discovery listener restorer', function () {
         }
     });
 
+    it('restores compact empty targets without falling back to all classes', function (): void {
+        $listener = new ListenerRestorerRecordingListener();
+        $restorer = new ListenerRestorer(
+            new ListenerRestorerProvider([$listener]),
+            new Config([
+                ListenerRestorer::CACHE_KEY => [
+                    'classes' => [ListenerRestorerInlineTarget::class],
+                    'empty_targets' => [ListenerRestorerRecordingListener::class],
+                ],
+            ]),
+            new PathResolver(sys_get_temp_dir()),
+        );
+
+        $restorer->restore(includeDevOnly: true);
+
+        expect($listener->handled)->toBe([]);
+    });
+
+    it('continues to restore legacy empty target maps', function (): void {
+        $listener = new ListenerRestorerRecordingListener();
+        $restorer = new ListenerRestorer(
+            new ListenerRestorerProvider([$listener]),
+            new Config([
+                ListenerRestorer::CACHE_KEY => [
+                    'classes' => [ListenerRestorerInlineTarget::class],
+                    'targets' => [
+                        ListenerRestorerRecordingListener::class => [],
+                    ],
+                ],
+            ]),
+            new PathResolver(sys_get_temp_dir()),
+        );
+
+        $restorer->restore(includeDevOnly: true);
+
+        expect($listener->handled)->toBe([]);
+    });
+
     it('does not report cache when the sidecar is missing', function () {
         $restorer = new ListenerRestorer(
             new ListenerRestorerProvider([new ListenerRestorerRecordingListener()]),

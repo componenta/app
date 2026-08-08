@@ -17,6 +17,7 @@ use Generator;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
 use RuntimeException;
+use SplFileInfo;
 use Throwable;
 
 /**
@@ -31,7 +32,7 @@ use Throwable;
  * The cache location is provided by the application bootstrap.
  *
  * Production has its own compile-time snapshot (`config.cache.php` via
- * `discovery:compile`); Discovery is not used there.
+ * `app:build`); Discovery is not used there.
  */
 final readonly class Discovery
 {
@@ -121,6 +122,10 @@ final readonly class Discovery
 
             foreach ($iterator as $entry) {
                 // Subdirectory mtime - catches add/remove inside nested folders.
+                if (!$entry instanceof SplFileInfo) {
+                    continue;
+                }
+
                 if ($entry->isDir()) {
                     if ($entry->getMTime() > $cacheMtime) {
                         return false;
@@ -172,7 +177,7 @@ final readonly class Discovery
     }
 
     /**
-     * @param list<array{file: string, fqcn: class-string, type: string, isAbstract: bool, isFinal: bool, isReadonly: bool}> $snapshot
+     * @param list<array{file: string, fqcn: string, type: string, isAbstract: bool, isFinal: bool, isReadonly: bool}> $snapshot
      */
     private function persist(array $snapshot, Closure $replace): void
     {
@@ -182,18 +187,13 @@ final readonly class Discovery
 
     private function restore(string $cacheFile): ClassIteratorInterface
     {
-        /** @var list<array{file: string, fqcn: class-string, type: string, isAbstract: bool, isFinal: bool, isReadonly: bool}> $snapshot */
-        $snapshot = include $cacheFile;
+        $loaded = include $cacheFile;
 
-        if (!is_array($snapshot)) {
-            throw new RuntimeException("Discovery cache is malformed: {$cacheFile}");
-        }
-
-        return new ClassIterator($this->replay($snapshot));
+        return new ClassIterator($this->replay($this->normalizeSnapshot($loaded, $cacheFile)));
     }
 
     /**
-     * @param list<array{file: string, fqcn: class-string, type: string, isAbstract: bool, isFinal: bool, isReadonly: bool}> $snapshot
+     * @param list<array{file: string, fqcn: string, type: string, isAbstract: bool, isFinal: bool, isReadonly: bool}> $snapshot
      *
      * @return Generator<string, ClassInfo>
      */
@@ -214,4 +214,59 @@ final readonly class Discovery
     {
         return $this->cacheFile;
     }
+
+    /**
+     * @return list<array{
+     *     file: string,
+     *     fqcn: string,
+     *     type: string,
+     *     isAbstract: bool,
+     *     isFinal: bool,
+     *     isReadonly: bool
+     * }>
+     */
+    private function normalizeSnapshot(mixed $loaded, string $cacheFile): array
+    {
+        if (!is_array($loaded) || !array_is_list($loaded)) {
+            throw new RuntimeException("Discovery cache is malformed: {$cacheFile}");
+        }
+
+        $normalized = [];
+        $expected = ['file', 'fqcn', 'isAbstract', 'isFinal', 'isReadonly', 'type'];
+
+        foreach ($loaded as $row) {
+            if (!is_array($row)) {
+                throw new RuntimeException("Discovery cache is malformed: {$cacheFile}");
+            }
+
+            $keys = array_keys($row);
+            sort($keys);
+
+            if ($keys !== $expected
+                || !is_string($row['file'])
+                || $row['file'] === ''
+                || !is_string($row['fqcn'])
+                || $row['fqcn'] === ''
+                || !is_string($row['type'])
+                || DeclarationType::tryFrom($row['type']) === null
+                || !is_bool($row['isAbstract'])
+                || !is_bool($row['isFinal'])
+                || !is_bool($row['isReadonly'])
+            ) {
+                throw new RuntimeException("Discovery cache is malformed: {$cacheFile}");
+            }
+
+            $normalized[] = [
+                'file' => $row['file'],
+                'fqcn' => $row['fqcn'],
+                'type' => $row['type'],
+                'isAbstract' => $row['isAbstract'],
+                'isFinal' => $row['isFinal'],
+                'isReadonly' => $row['isReadonly'],
+            ];
+        }
+
+        return $normalized;
+    }
+
 }

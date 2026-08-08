@@ -17,9 +17,11 @@ use ReflectionClass;
  * Pure transformation: `compile()` reads each listener's `#[ListenTo]`
  * attributes (no listener state is touched) and filters the supplied
  * classes into per-listener index arrays. The output is stable across
- * calls for the same `(classes, listeners)` inputs. Listeners with no
- * `#[ListenTo]` on them produce no entry - `ListenerRestorer` then falls
- * back to feeding them the full class list at runtime.
+ * calls for the same `(classes, listeners)` inputs. Empty filtered
+ * listener results are stored in one compact `empty_targets` list instead
+ * of as empty map values. Listeners with no `#[ListenTo]` on them produce
+ * no entry - `ListenerRestorer` then falls back to feeding them the full
+ * class list at runtime.
  */
 final readonly class ListenerCompiler
 {
@@ -30,22 +32,28 @@ final readonly class ListenerCompiler
     /**
      * @param iterable<ClassInfo> $classes
      *
-     * @return array{classes: list<class-string>, targets: array<class-string, list<int>>}
+     * @return array{
+     *     classes?: list<class-string>,
+     *     targets?: array<class-string, list<int>>,
+     *     empty_targets?: list<class-string>
+     * }
      */
     public function compile(iterable $classes): array
     {
-        /** @var list<ClassInfo> $classInfos */
+        /** @var array<class-string, ClassInfo> $classInfos */
         $classInfos = [];
-        /** @var list<class-string> $classNames */
-        $classNames = [];
 
         foreach ($classes as $info) {
-            $classInfos[] = $info;
-            $classNames[] = $info->fullyQualifiedName;
+            $classInfos[$info->fullyQualifiedName] ??= $info;
         }
 
+        /** @var list<class-string> $classNames */
+        $classNames = array_keys($classInfos);
+        $classInfos = array_values($classInfos);
         $index   = array_flip($classNames);
         $targets = [];
+        /** @var list<class-string> $emptyTargets */
+        $emptyTargets = [];
 
         foreach ($this->listenerProvider->getClassListeners() as $listener) {
             $listenTos = $this->readListenTos($listener);
@@ -62,16 +70,28 @@ final readonly class ListenerCompiler
                 }
             }
 
-            // Record even when empty - prevents {@see ListenerRestorer}
-            // from falling back to "no targets -> feed every class" for a
-            // listener that actually declared a filter.
-            $targets[$listener::class] = $indices;
+            if ($indices === []) {
+                $emptyTargets[] = $listener::class;
+            } else {
+                $targets[$listener::class] = $indices;
+            }
         }
 
-        return [
-            'classes' => $classNames,
-            'targets' => $targets,
-        ];
+        $cache = [];
+
+        if ($classNames !== []) {
+            $cache['classes'] = $classNames;
+        }
+
+        if ($targets !== []) {
+            $cache['targets'] = $targets;
+        }
+
+        if ($emptyTargets !== []) {
+            $cache['empty_targets'] = $emptyTargets;
+        }
+
+        return $cache;
     }
 
     /**

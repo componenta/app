@@ -20,7 +20,6 @@ use Componenta\App\Discovery\ListenerCompiler;
 use Componenta\App\Discovery\ListenerRestorer;
 use Componenta\ClassFinder\ConfigKey as ClassFinderConfigKey;
 use Componenta\Config\Config;
-use Componenta\Config\ConfigKey as ConfigDependencyKey;
 use Componenta\Config\ContainerValue;
 use Componenta\DI\ConfigKey as DependencyConfigKey;
 use Componenta\Stdlib\PathResolver;
@@ -61,7 +60,7 @@ describe('app ConfigProvider', function () {
             BootMethodInvocation::class,
         ])->and($config[CompileConfigKey::LISTENER_COMPILERS])->toBe([
             BootInvocationCompiler::class,
-        ])->and($config[DependencyConfigKey::DEPENDENCIES])->not->toHaveKey(ConfigDependencyKey::AUTOWIRES)
+        ])->and($config[DependencyConfigKey::DEPENDENCIES])->not->toHaveKey('autowires')
             ->and($config[DependencyConfigKey::DEPENDENCIES][DependencyConfigKey::FACTORIES])->toHaveKeys([
             BootTargetFactory::class,
             DiscoveryCompiler::class,

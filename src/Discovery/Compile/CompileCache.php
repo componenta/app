@@ -22,7 +22,7 @@ use Componenta\VarExport\Export;
  * snapshot) - any `.php` change in watched directories bumps that and
  * stales everything here in one shot, as intended.
  *
- * Not used in production: the CLI `discovery:compile` bakes an
+ * Not used in production: the CLI `app:build` bakes an
  * equivalent delta straight into `config.cache.php`.
  */
 final readonly class CompileCache
@@ -61,11 +61,25 @@ final readonly class CompileCache
         /** @var mixed $loaded */
         $loaded = include $this->cacheFile;
 
-        return is_array($loaded) ? $loaded : null;
+        if (!is_array($loaded)) {
+            return null;
+        }
+
+        $normalized = [];
+
+        foreach ($loaded as $key => $value) {
+            if (!is_string($key)) {
+                return null;
+            }
+
+            $normalized[$key] = $value;
+        }
+
+        return $normalized;
     }
 
     /**
-     * @param array<string, mixed> $delta Config keys (at any depth) to persist.
+     * @param array<array-key, mixed> $delta Config keys (at any depth) to persist.
      */
     public function persist(array $delta): void
     {

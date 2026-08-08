@@ -25,11 +25,21 @@ final class AtomicFile
         });
     }
 
+    /**
+     * @template T
+     * @param Closure(): T $callback
+     * @return T
+     */
     public static function readLocked(string $path, Closure $callback): mixed
     {
         return self::withLock($path, LOCK_SH, $callback);
     }
 
+    /**
+     * @template T
+     * @param Closure(Closure(string, string=): void): T $callback
+     * @return T
+     */
     public static function writeLocked(string $path, Closure $callback): mixed
     {
         return self::withLock(
@@ -63,9 +73,24 @@ final class AtomicFile
 
         throw new RuntimeException("Unable to finalise {$label}: {$path}");
     }
+    /**
+     * @template T
+     * @param Closure(): T $callback
+     * @return T
+     */
 
-    private static function withLock(string $path, int $operation, Closure $callback): mixed
+    private static function withLock(
+        string $path,
+        int $operation,
+        Closure $callback,
+    ): mixed
     {
+        if ($operation !== LOCK_SH && $operation !== LOCK_EX) {
+            throw new \InvalidArgumentException(
+                'Atomic file lock operation must be LOCK_SH or LOCK_EX.',
+            );
+        }
+
         self::ensureDirectory(dirname($path), 'cache lock directory');
 
         $lockFile = $path . '.lock';

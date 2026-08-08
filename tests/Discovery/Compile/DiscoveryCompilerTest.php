@@ -49,6 +49,34 @@ final class DiscoveryCompilerUnsupportedListener implements ClassListenerInterfa
     }
 }
 
+final class DiscoveryCompilerConfigValueListener implements ClassListenerInterface
+{
+    public function __construct(public mixed $value)
+    {
+    }
+
+    public function handle(ClassInfo $info): void
+    {
+    }
+}
+
+final class DiscoveryCompilerConfigValueCompiler implements ListenerCompilerInterface
+{
+    public function supports(object $listener): bool
+    {
+        return $listener instanceof DiscoveryCompilerConfigValueListener;
+    }
+
+    public function compile(object $listener, string $cacheDir): CompileResult
+    {
+        if (!$listener instanceof DiscoveryCompilerConfigValueListener) {
+            throw new LogicException('Unsupported listener.');
+        }
+
+        return CompileResult::config('componenta.test.value', $listener->value);
+    }
+}
+
 final class DiscoveryCompilerSupportedListenerCompiler implements ListenerCompilerInterface
 {
     public function supports(object $listener): bool
@@ -98,5 +126,31 @@ describe('DiscoveryCompiler', function () {
 
         expect(fn () => $compiler->compile([new DiscoveryCompilerStatelessFinalizableListener()], __DIR__))
             ->toThrow(RuntimeException::class, FinalizationStateInterface::class);
+    });
+
+    it('omits empty top-level config results without filtering nested values', function () {
+        $compiler = new DiscoveryCompiler([
+            new DiscoveryCompilerConfigValueCompiler(),
+        ]);
+
+        foreach ([[], null, false] as $emptyValue) {
+            expect($compiler->compile([
+                new DiscoveryCompilerConfigValueListener($emptyValue),
+            ], __DIR__))->toBe([]);
+        }
+
+        expect($compiler->compile([
+            new DiscoveryCompilerConfigValueListener([
+                'version' => 2,
+                'services' => [
+                    'feature.enabled' => false,
+                ],
+            ]),
+        ], __DIR__))->toBe([
+            'componenta.test.value' => [
+                'version' => 2,
+                'services' => ['feature.enabled' => false],
+            ],
+        ]);
     });
 });

@@ -21,7 +21,7 @@ use ReflectionClass;
  * Reads the cache under {@see CACHE_KEY} from the application {@see Config}.
  * The key is populated by one of two writers:
  *
- *  - in production, by the CLI `discovery:compile` command (via
+ *  - in production, by the CLI `app:build` command (via
  *    {@see ListenerCompiler}), baked straight into `config.cache.php`;
  *  - in development, by `ClassDiscoveryBootloader`'s cold path persisting
  *    the same shape into the dev compile cache, which `config/config.php`
@@ -38,7 +38,7 @@ use ReflectionClass;
  * would. Missing-class autoload errors are delayed until a listener
  * actually touches the reflector, not at snapshot load.
  */
-final readonly class ListenerRestorer
+final class ListenerRestorer
 {
     public const int CACHE_VERSION = 1;
 
@@ -53,11 +53,17 @@ final readonly class ListenerRestorer
      * Config key pointing to a sidecar file containing the restoreable cache.
      */
     public const string CACHE_FILE_KEY = 'Componenta\App\Discovery::cache_file';
+    /** @var array<class-string, true> */
+    private static array $devOnly = [];
+
+    /** @var array<class-string, true> */
+    private static array $regular = [];
+
 
     public function __construct(
-        private ClassListenerProviderInterface $listenerProvider,
-        private Config                         $config,
-        private PathResolverInterface          $paths,
+        private readonly ClassListenerProviderInterface $listenerProvider,
+        private readonly Config $config,
+        private readonly PathResolverInterface $paths,
     ) {}
 
     /**
@@ -70,7 +76,6 @@ final readonly class ListenerRestorer
      */
     public function restore(bool $includeDevOnly = false): void
     {
-        /** @var array{classes?: list<class-string>, targets?: array<class-string, list<int>>} $cache */
         $cache = $this->cache();
 
         if ($cache === []) {
@@ -79,6 +84,7 @@ final readonly class ListenerRestorer
 
         $allClasses = $cache['classes'] ?? [];
         $targets    = $cache['targets'] ?? [];
+        $emptyTargets = array_flip($cache['empty_targets'] ?? []);
 
         foreach ($this->listenerProvider->getClassListeners() as $listener) {
             if (!$includeDevOnly && $this->isDevOnly($listener)) {
@@ -92,6 +98,8 @@ final readonly class ListenerRestorer
                     static fn (int $i): string => $allClasses[$i],
                     $targets[$key],
                 );
+            } elseif (isset($emptyTargets[$key])) {
+                $classNames = [];
             } else {
                 $classNames = $allClasses;
             }
@@ -112,13 +120,14 @@ final readonly class ListenerRestorer
     }
 
     /**
-     * @return array{classes?: list<class-string>, targets?: array<class-string, list<int>>}
+     * @return array{classes?: list<non-empty-string>, targets?: array<non-empty-string, list<int>>, empty_targets?: list<non-empty-string>}
      */
     private function cache(): array
     {
         $inline = $this->config->get(self::CACHE_KEY, []);
+        $inline = self::normalizeCache($inline);
 
-        if (is_array($inline) && $inline !== []) {
+        if ($inline !== []) {
             return $inline;
         }
 
@@ -142,8 +151,9 @@ final readonly class ListenerRestorer
 
         $cache = $payload['cache'] ?? [];
 
-        return is_array($cache) ? $cache : [];
+        return self::normalizeCache($cache);
     }
+
 
     /**
      * Per-class memoisation of the `#[DevOnly]` check. Listener classes
@@ -151,16 +161,135 @@ final readonly class ListenerRestorer
      * stable and worth caching - each lookup would otherwise build a
      * fresh `ReflectionClass` plus an attribute scan per restore call.
      *
-     * A function-scoped `static` is used (rather than a class property)
-     * because this class is `readonly`, which forbids writable instance
-     * or statically-defaulted properties.
+     * Two class-level sets keep the cached value strictly typed as bool.
      */
     private function isDevOnly(ClassListenerInterface $listener): bool
     {
-        static $cache = [];
         $class = $listener::class;
 
-        return $cache[$class] ??= new ReflectionClass($class)->getAttributes(DevOnly::class) !== [];
+        if (isset(self::$devOnly[$class])) {
+            return true;
+        }
+
+        if (isset(self::$regular[$class])) {
+            return false;
+        }
+
+        $isDevOnly = new ReflectionClass($class)->getAttributes(DevOnly::class) !== [];
+
+        if ($isDevOnly) {
+            self::$devOnly[$class] = true;
+        } else {
+            self::$regular[$class] = true;
+        }
+
+        return $isDevOnly;
     }
 
+    /**
+     * @return array{
+     *     classes?: list<non-empty-string>,
+     *     targets?: array<non-empty-string, list<int>>,
+     *     empty_targets?: list<non-empty-string>
+     * }
+     */
+    private static function normalizeCache(mixed $cache): array
+    {
+        if (!is_array($cache)) {
+            return [];
+        }
+
+        foreach (array_keys($cache) as $key) {
+            if (!is_string($key)
+                || !in_array($key, ['classes', 'targets', 'empty_targets'], true)
+            ) {
+                return [];
+            }
+        }
+
+        $classes = $cache['classes'] ?? [];
+
+        if (!is_array($classes) || !array_is_list($classes)) {
+            return [];
+        }
+
+        $normalizedClasses = [];
+
+        foreach ($classes as $class) {
+            if (!is_string($class) || trim($class) === '') {
+                return [];
+            }
+
+            $normalizedClasses[] = $class;
+        }
+
+        $targets = $cache['targets'] ?? [];
+
+        if (!is_array($targets)) {
+            return [];
+        }
+
+        $normalizedTargets = [];
+        /** @var array<non-empty-string, true> $normalizedEmptyTargetSet */
+        $normalizedEmptyTargetSet = [];
+
+        foreach ($targets as $listener => $indices) {
+            if (!is_string($listener)
+                || trim($listener) === ''
+                || !is_array($indices)
+                || !array_is_list($indices)
+            ) {
+                return [];
+            }
+
+            $normalizedIndices = [];
+
+            foreach ($indices as $index) {
+                if (!is_int($index) || $index < 0 || !array_key_exists($index, $normalizedClasses)) {
+                    return [];
+                }
+
+                $normalizedIndices[] = $index;
+            }
+
+            if ($normalizedIndices !== []) {
+                $normalizedTargets[$listener] = $normalizedIndices;
+            } else {
+                // Older caches encoded a listener with no matching classes as
+                // an empty target map. Keep accepting that representation,
+                // but normalize it to the compact v1 schema in memory.
+                $normalizedEmptyTargetSet[$listener] = true;
+            }
+        }
+
+        $emptyTargets = $cache['empty_targets'] ?? [];
+
+        if (!is_array($emptyTargets) || !array_is_list($emptyTargets)) {
+            return [];
+        }
+
+        foreach ($emptyTargets as $listener) {
+            if (!is_string($listener) || trim($listener) === '') {
+                return [];
+            }
+
+            $normalizedEmptyTargetSet[$listener] = true;
+        }
+
+        $normalizedEmptyTargets = array_keys($normalizedEmptyTargetSet);
+
+        $normalized = [];
+
+        if ($normalizedClasses !== []) {
+            $normalized['classes'] = $normalizedClasses;
+        }
+        if ($normalizedTargets !== []) {
+            $normalized['targets'] = $normalizedTargets;
+        }
+        if ($normalizedEmptyTargets !== []) {
+            $normalized['empty_targets'] = $normalizedEmptyTargets;
+        }
+
+        return $normalized;
+    }
 }

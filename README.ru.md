@@ -155,7 +155,7 @@ Production mode:
 | `componenta/router-app` | Route cache. |
 | `componenta/policy-app` | Описания политик. |
 | `componenta/interceptor-app` | Описания перехватчиков. |
-| `componenta/cqrs-app` | Карты обработчиков команд и запросов, метаданные команд. |
+| `componenta/cqrs-app` | Одна версионированная CQRS map с обработчиками, слушателями, известными командами и метаданными команд. |
 | `componenta/cycle-app` | ORM discovery и console integration. |
 
 `CompileFeatureSupport` держит optional compilers выключенными, если нужная service binding отсутствует. Приложение не платит за компиляцию пакетов, которые не использует.
@@ -243,6 +243,8 @@ final class Welcome
 ## Discovery Compile Cache
 
 `componenta/app` регистрирует `CompileCache` как фабрику контейнера. Фабрика берет `devCompile` и `devDiscovery` из `CacheLayout::fromConfig()`, поэтому изменения `CACHE_DEV_DIR` / `AppConfigKey::CACHE_DEV_DIR` применяются последовательно. `ConfigFactory` может читать compile-delta cache во время сборки конфигурации, но сам сервис контейнера принадлежит провайдеру этого пакета.
+
+Скомпилированный discovery payload содержит одну таблицу классов без дубликатов. Фильтруемые listeners ссылаются на индексы классов через непустые `targets`; listeners, которые намеренно ничего не нашли, объединяются в `empty_targets` и не могут случайно получить все классы. Пустые секции `classes`, `targets` и `empty_targets` не записываются. `ListenerRestorer` также понимает предыдущую форму `targets[listener] => []`, чтобы можно было пересобрать старый dev-cache; production artifacts заново создаются командой `app:build`.
 
 ## Границы
 
