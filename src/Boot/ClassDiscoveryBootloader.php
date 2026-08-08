@@ -77,9 +77,9 @@ final class ClassDiscoveryBootloader implements BootloaderInterface
     {
         $discoveryCache = $container->get(ListenerCompiler::class, ListenerCompiler::class)->compile($iterator);
 
-        $delta = [
-            ListenerRestorer::CACHE_KEY => $discoveryCache,
-        ];
+        $delta = $discoveryCache['classes'] === [] && $discoveryCache['targets'] === []
+            ? []
+            : [ListenerRestorer::CACHE_KEY => $discoveryCache];
 
         foreach ($this->compileContributors($container) as $contributor) {
             $delta = config_merge($delta, $contributor->compile($discoveryCache['classes']));
