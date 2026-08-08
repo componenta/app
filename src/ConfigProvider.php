@@ -19,7 +19,6 @@ use Componenta\App\Cache\CacheLayout;
 use Componenta\App\Discovery\ListenerCompiler;
 use Componenta\App\Discovery\ListenerRestorer;
 use Componenta\App\Discovery\Compile\CompileCache;
-use Componenta\App\Discovery\Compile\DiPlanBuilder;
 use Componenta\App\Discovery\Compile\DiscoveryCompiler;
 use Componenta\App\Discovery\Compile\DiscoveryCompilerFactory;
 use Componenta\ClassFinder\Compile\ConfigKey as CompileConfigKey;
@@ -49,22 +48,6 @@ final class ConfigProvider extends BaseConfigProvider
         ];
     }
 
-    protected function getAutowires(): array
-    {
-        return [
-            AppFactory::class,
-            BootMethodInvocation::class,
-            BootInvocationRunner::class,
-            BootInvocationCompiler::class,
-            BootloaderProvider::class,
-            CompiledBootInvocationBootloader::class,
-            DateTimeBootloader::class,
-            DiPlanBuilder::class,
-            ListenerCompiler::class,
-            ListenerRestorer::class,
-            ClassDiscoveryBootloader::class,
-        ];
-    }
 
     protected function getAliases(): array
     {

@@ -30,7 +30,7 @@ When `componenta/composer-plugin` is installed, that provider is written to the 
 | `componenta/path-resolver` | Provides `PathResolver` so entry points resolve project files from the root directory. |
 | `componenta/config` | Holds the final application configuration after providers are loaded. |
 | `componenta/di` | Builds the service container and invokes factories, runners, handlers, and bootloaders. |
-| `componenta/app-http` | Adds HTTP scope, HTTP app adapter, pipeline bootloader, and PSR-7 response emitting. |
+| `componenta/app-http` | Registers the HTTP application, pipeline bootloader, and PSR-7 response emitting. |
 | `componenta/app-console` | Adds console scope, Symfony Console integration, and command registration. |
 | `componenta/websocket-app` | Adds WebSocket scope and bridges `componenta/websocket-server` into the app boot process. |
 | `componenta/router` + `componenta/router-app` | Provide HTTP routing and optional route discovery/cache compilation. |
@@ -125,8 +125,7 @@ The project config definition should stay declarative: it registers config provi
 - development discovery;
 - development compile deltas;
 - attribute-derived config;
-- DI plans;
-- container factory cache;
+- generated DI entry resolver;
 - route cache;
 - policy descriptors;
 - interceptor descriptors;
@@ -152,16 +151,18 @@ Compile features are optional. App packages contribute compilers only when their
 
 ## AppFactory And Scopes
 
-`AppFactory` creates an application for a requested `Scope` through adapters contributed by runtime integration packages:
+`AppFactory` resolves the application registered for the requested `Scope`.
+Runtime integration packages contribute a direct map through
+`ConfigKey::APP_BY_SCOPE`:
 
-- HTTP;
-- console;
-- WebSocket;
-- server.
+- `Scope::HTTP->value => Componenta\App\Server\App::class`;
+- `Scope::CLI->value => Componenta\App\Console\App::class`;
+- WebSocket and server packages register their own application classes.
 
-The base package defines the scope model and adapter contracts. Concrete applications for HTTP, console, and WebSocket scopes are registered by `componenta/app-http`, `componenta/app-console`, and `componenta/websocket-app`.
-
-`ScopedInterface` and `ScopeInterface` come from `componenta/scope` and express which scope an object supports. They are used to fail early when a runner receives an incompatible application object.
+The base package owns `AppFactory`, `AppInterface`, and the scope model.
+It does not define an application adapter contract. The selected service must
+implement `AppInterface`; `AppFactory` validates this before resolving it
+from the container.
 
 ## Boot Targets
 

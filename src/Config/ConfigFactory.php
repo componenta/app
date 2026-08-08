@@ -25,10 +25,15 @@ final class ConfigFactory
     public static function create(
         PathResolverInterface $paths,
         ConfigDefinitionInterface|callable $definition,
+        ?Environment $environment = null,
+        bool $loadCachedCompileDelta = true,
     ): ConfigFactoryResult {
         $bootstrapCache = CacheLayout::bootstrap($paths);
-        $envFromFile = new EnvLoader($paths->baseDir)->load(override: true);
-        $env = $envFromFile ?? Environment::fromGlobals();
+        $env = $environment;
+        if ($env === null) {
+            $envFromFile = new EnvLoader($paths->baseDir)->load(override: true);
+            $env = $envFromFile ?? Environment::fromGlobals();
+        }
 
         if ($env->get('APP_ENV', 'development') !== 'development') {
             $cached = ConfigLoader::loadFromFile($bootstrapCache->config);
@@ -57,7 +62,9 @@ final class ConfigFactory
                 cacheFile:    $cache->devCompile,
                 baselineFile: $discoveryCacheFile,
             );
-            $cachedDelta = $compileCache->load();
+            if ($loadCachedCompileDelta) {
+                $cachedDelta = $compileCache->load();
+            }
         }
 
         $providers = self::prepareProviders(

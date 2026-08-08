@@ -27,32 +27,7 @@ final class ContainerFactory
         $options ??= new ContainerFactoryOptions();
         $cache = CacheLayout::fromConfig($config, $paths);
         $containerCache = $cache->container;
-        $containerFactoryCache = $cache->containerFactory;
         $hasConfigDependencies = $config->has(ConfigKey::DEPENDENCIES);
-
-        if ($options->cacheMode === ContainerCacheMode::FactoryFile) {
-            $container = self::buildFromFactory($containerFactoryCache, $config, $paths, $discovered);
-
-            if ($container === null) {
-                throw new RuntimeException(sprintf('Container factory cache is not callable: %s', $containerFactoryCache));
-            }
-
-            return $container;
-        }
-
-        if ($options->cacheMode === ContainerCacheMode::Auto && self::isProduction($config) && is_file($containerFactoryCache)) {
-            try {
-                $container = self::buildFromFactory($containerFactoryCache, $config, $paths, $discovered);
-
-                if ($container !== null) {
-                    return $container;
-                }
-            } catch (Throwable $e) {
-                if (!$hasConfigDependencies && !is_file($containerCache)) {
-                    throw $e;
-                }
-            }
-        }
 
         $builder = self::builderFromCache(
             options: $options,
@@ -83,7 +58,7 @@ final class ContainerFactory
         $shouldReadCache = match ($options->cacheMode) {
             ContainerCacheMode::Auto => self::isProduction($config) || !$hasConfigDependencies,
             ContainerCacheMode::CacheFile, ContainerCacheMode::RequireCache => true,
-            ContainerCacheMode::Disabled, ContainerCacheMode::FactoryFile => false,
+            ContainerCacheMode::Disabled => false,
         };
 
         if (!$shouldReadCache) {
@@ -112,37 +87,6 @@ final class ContainerFactory
         }
 
         return null;
-    }
-
-    private static function buildFromFactory(
-        string $containerFactoryCache,
-        Config $config,
-        PathResolverInterface $paths,
-        ?iterable $discovered,
-    ): ?Container {
-        $factory = require $containerFactoryCache;
-
-        if (!is_callable($factory)) {
-            return null;
-        }
-
-        $container = $factory($config);
-
-        if (!$container instanceof Container) {
-            throw new RuntimeException(sprintf(
-                'Container factory must return %s, got %s.',
-                Container::class,
-                get_debug_type($container),
-            ));
-        }
-
-        $container->set(PathResolverInterface::class, $paths);
-
-        if ($discovered !== null) {
-            $container->set(ClassIteratorInterface::class, $discovered);
-        }
-
-        return $container;
     }
 
     private static function isProduction(Config $config): bool

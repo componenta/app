@@ -18,46 +18,41 @@ final class AppFactory implements AppFactoryInterface
      */
     public function createApp(ScopeInterface $scope, ContainerValue $container): AppInterface
     {
-        foreach ($this->adapters($container) as $adapterClass) {
-            $adapter = $container->get($adapterClass, AppAdapterInterface::class);
-
-            if (!$adapter->supports($scope)) {
-                continue;
-            }
-
-            return $adapter->createApp($scope, $container);
-        }
-
-        throw new LogicException(sprintf(
-            'Unknown scope "%s" - no matching App adapter.',
-            $scope->value,
-        ));
+        return $container->get($this->appClass($scope, $container), AppInterface::class);
     }
 
     /**
-     * @return list<class-string<AppAdapterInterface>>
+     * @return class-string<AppInterface>
      */
-    private function adapters(ContainerValue $container): array
+    private function appClass(ScopeInterface $scope, ContainerValue $container): string
     {
-        $adapters = $container->config->get(ConfigKey::APP_ADAPTERS, []);
+        $apps = $container->config->get(ConfigKey::APP_BY_SCOPE, []);
 
-        if (!is_array($adapters)) {
+        if (!is_array($apps)) {
             throw new LogicException(sprintf(
-                'Config key "%s" must contain a list of app adapter class-strings.',
-                ConfigKey::APP_ADAPTERS,
+                'Config key "%s" must contain a map of scope values to App class-strings.',
+                ConfigKey::APP_BY_SCOPE,
             ));
         }
 
-        foreach ($adapters as $adapter) {
-            if (!is_string($adapter) || !is_a($adapter, AppAdapterInterface::class, true)) {
-                throw new LogicException(sprintf(
-                    'App adapter entry must be a class-string implementing %s, %s given.',
-                    AppAdapterInterface::class,
-                    is_string($adapter) ? $adapter : get_debug_type($adapter),
-                ));
-            }
+        $app = $apps[$scope->value] ?? null;
+
+        if ($app === null) {
+            throw new LogicException(sprintf(
+                'Unknown scope "%s" - no App is configured.',
+                $scope->value,
+            ));
         }
 
-        return array_values($adapters);
+        if (!is_string($app) || !is_a($app, AppInterface::class, true)) {
+            throw new LogicException(sprintf(
+                'App configured for scope "%s" must be a class-string implementing %s, %s given.',
+                $scope->value,
+                AppInterface::class,
+                is_string($app) ? $app : get_debug_type($app),
+            ));
+        }
+
+        return $app;
     }
 }

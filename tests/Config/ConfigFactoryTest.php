@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Componenta\App\Config\ConfigDefinition;
 use Componenta\App\Config\ConfigFactory;
 use Componenta\App\Config\DiscoveryDefinition;
+use Componenta\App\Discovery\Compile\CompileCache;
 use Componenta\App\ConfigKey as AppConfigKey;
 use Componenta\DI\ConfigKey;
 use Componenta\Stdlib\PathResolver;
@@ -148,6 +149,43 @@ describe('ConfigFactory', function () {
             expect(is_file($root . '/runtime/cache/dev/discovery.dev.php'))->toBeTrue()
                 ->and(is_file($root . '/var/cache/dev/discovery.dev.php'))->toBeFalse()
                 ->and(is_file($root . '/var/cache/dev/compile.dev.php'))->toBeFalse();
+        } finally {
+            removeConfigFactoryRuntimeRoot($root);
+        }
+    });
+
+    it('can build source config without replaying a cached compile delta', function () {
+        $root = configFactoryRuntimeRoot();
+        mkdir($root . '/src', recursive: true);
+        file_put_contents($root . '/.env', "APP_ENV=development\n");
+        file_put_contents($root . '/src/Example.php', "<?php\n\ndeclare(strict_types=1);\n\nfinal class Example {}\n");
+        $paths = new PathResolver($root);
+        $definition = static fn (): ConfigDefinition => new ConfigDefinition(
+            providers: [
+                static fn (): array => ['items' => ['source']],
+            ],
+            discovery: new DiscoveryDefinition(
+                directories: ['src'],
+            ),
+        );
+
+        try {
+            ConfigFactory::create($paths, $definition);
+
+            new CompileCache(
+                cacheFile: $root . '/var/cache/dev/compile.dev.php',
+                baselineFile: $root . '/var/cache/dev/discovery.dev.php',
+            )->persist(['items' => ['compiled']]);
+
+            $withCachedDelta = ConfigFactory::create($paths, $definition);
+            $fromSource = ConfigFactory::create(
+                paths: $paths,
+                definition: $definition,
+                loadCachedCompileDelta: false,
+            );
+
+            expect($withCachedDelta->config->array('items'))->toBe(['compiled', 'source'])
+                ->and($fromSource->config->array('items'))->toBe(['source']);
         } finally {
             removeConfigFactoryRuntimeRoot($root);
         }
