@@ -47,21 +47,21 @@ final class ClassDiscoveryBootloader implements BootloaderInterface
     {
         $container = $context->container;
         $config = $container->config;
+        $isProduction = $config->environment?->match('APP_ENV', 'production') === true;
 
         if (($config->has(ListenerRestorer::CACHE_KEY) || $config->has(ListenerRestorer::CACHE_FILE_KEY))
             && $container->has(ListenerRestorer::class)
         ) {
-            $isDev = $config->environment?->match('APP_ENV', 'production') === false;
             $restorer = $container->get(ListenerRestorer::class, ListenerRestorer::class);
 
             if ($restorer->hasCache()) {
-                $restorer->restore(includeDevOnly: $isDev);
+                $restorer->restore(includeDevOnly: !$isProduction);
 
                 return;
             }
         }
 
-        if (!$container->has(ClassIteratorInterface::class)) {
+        if ($isProduction || !$container->has(ClassIteratorInterface::class)) {
             return;
         }
 

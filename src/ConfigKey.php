@@ -61,6 +61,9 @@ class ConfigKey extends \Componenta\Config\ConfigKey
      */
     public const string COMPILE_CACHE_CONTRIBUTORS = 'compile.cache_contributors';
 
+    /** Build-only services which contribute roots for compiled DI factories. */
+    public const string AUTOWIRE_ENTRY_CONTRIBUTORS = 'compile.autowire_entry_contributors';
+
     /**
      * Cache directory paths (relative to PathResolverInterface::baseDir or absolute).
      *

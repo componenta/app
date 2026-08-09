@@ -125,7 +125,7 @@ The project config definition should stay declarative: it registers config provi
 - development discovery;
 - development compile deltas;
 - attribute-derived config;
-- generated DI entry resolver;
+- content-addressed compiled DI factory shards;
 - route cache;
 - policy descriptors;
 - interceptor descriptors;
@@ -225,7 +225,7 @@ Boot parameters support plain values and the same explicit metadata objects used
 
 In development, `ClassDiscoveryBootloader` scans classes and `BootMethodInvocation` collects `#[Boot]` methods. When discovery finalizes, `BootInvocationRunner` executes them by descending priority.
 
-During `app:build`, `BootInvocationCompiler` serializes the finalized invocation list into `ConfigKey::BOOT_INVOCATIONS`. In production, `ClassDiscoveryBootloader` skips the development-only listener and `CompiledBootInvocationBootloader` executes only that compiled list when `APP_ENV=production`. This avoids reflection scans and prevents the same boot method from running twice.
+During `app:build`, `BootInvocationCompiler` serializes the finalized invocation list into `ConfigKey::BOOT_INVOCATIONS`. During `app:build`, development-only listener registrations are removed from the production config. If no runtime listener remains, the discovery class snapshot is omitted as well. `ClassDiscoveryBootloader` never falls back to a class/filesystem scan in production, while `CompiledBootInvocationBootloader` executes only the compiled list. This avoids reflection scans and prevents the same boot method from running twice.
 
 `BootInvocationCompiler` does not scan classes or call `finalize()` itself. The common `DiscoveryCompiler` checks before compilation that a finalizable listener supports `FinalizationStateInterface` and is already finalized. The build therefore uses the same discovery lifecycle result prepared by the class-discovery bootloader, without reading private listener state through reflection.
 

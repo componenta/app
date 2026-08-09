@@ -136,7 +136,7 @@ Production mode:
 - discovery в разработке;
 - compile deltas в разработке;
 - конфигурации, собранной из атрибутов;
-- сгенерированный DI entry resolver;
+- content-addressed шарды скомпилированных DI-фабрик;
 - route cache;
 - описания политик;
 - описания перехватчиков;
@@ -236,7 +236,7 @@ final class Welcome
 
 В режиме разработки `ClassDiscoveryBootloader` сканирует классы, а `BootMethodInvocation` собирает `#[Boot]` методы. При финализации обнаружения `BootInvocationRunner` выполняет их по убыванию `priority`.
 
-Во время `app:build` `BootInvocationCompiler` сериализует финализированный список вызовов в `ConfigKey::BOOT_INVOCATIONS`. В боевом окружении `ClassDiscoveryBootloader` пропускает слушатель только для разработки, а `CompiledBootInvocationBootloader` выполняет только скомпилированный список при `APP_ENV=production`. Так запуск не делает reflection-сканирование и один boot-метод не выполняется дважды.
+Во время `app:build` `BootInvocationCompiler` сериализует финализированный список вызовов в `ConfigKey::BOOT_INVOCATIONS`. Во время `app:build` регистрации listeners только для разработки удаляются из production-конфигурации. Если runtime-listeners не осталось, таблица discovery-классов также не записывается. `ClassDiscoveryBootloader` никогда не переходит к сканированию классов или файлов в production, а `CompiledBootInvocationBootloader` выполняет только скомпилированный список. Так один boot-метод не выполняется дважды.
 
 `BootInvocationCompiler` не сканирует классы и не вызывает `finalize()` самостоятельно. Общий `DiscoveryCompiler` перед компиляцией проверяет, что финализируемый слушатель поддерживает `FinalizationStateInterface` и уже финализирован. Поэтому сборка использует тот же результат discovery lifecycle, который был подготовлен загрузчиком классов, без доступа к приватному состоянию слушателя через reflection.
 

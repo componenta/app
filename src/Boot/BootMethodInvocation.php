@@ -9,6 +9,8 @@ use Componenta\ClassFinder\Attribute\ListenTo;
 use Componenta\ClassFinder\Exception\ListenerAlreadyFinalizedException;
 use Componenta\ClassFinder\FinalizableListenerInterface;
 use Componenta\ClassFinder\FinalizationStateInterface;
+use Componenta\DI\Compile\Autowire\AutowireEntry;
+use Componenta\DI\Compile\Autowire\AutowireEntryContributorInterface;
 use Componenta\Tokenizer\ClassInfo;
 use ReflectionClass;
 use ReflectionMethod;
@@ -18,7 +20,8 @@ use ReflectionMethod;
 final class BootMethodInvocation implements
     FinalizableListenerInterface,
     FinalizationStateInterface,
-    BootInvocationProviderInterface
+    BootInvocationProviderInterface,
+    AutowireEntryContributorInterface
 {
     /** @var list<BootInvocation> */
     private array $invocations = [];
@@ -53,6 +56,19 @@ final class BootMethodInvocation implements
 
         $this->isFinalized = true;
         $this->runner->run($this->invocations);
+    }
+
+    public function entries(): iterable
+    {
+        $classes = [];
+        foreach ($this->invocations as $invocation) {
+            $classes[$invocation->class] = true;
+        }
+        ksort($classes);
+
+        foreach (array_keys($classes) as $class) {
+            yield new AutowireEntry($class, '#[Boot]');
+        }
     }
 
     /**

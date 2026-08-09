@@ -16,6 +16,7 @@ use Componenta\App\Boot\CompiledBootInvocationBootloader;
 use Componenta\App\Boot\DateTimeBootloader;
 use Componenta\App\Boot\ClassDiscoveryBootloader;
 use Componenta\App\Cache\CacheLayout;
+use Componenta\App\Discovery\Autowire\AutowireAttributeListener;
 use Componenta\App\Discovery\ListenerCompiler;
 use Componenta\App\Discovery\ListenerRestorer;
 use Componenta\App\Discovery\Compile\CompileCache;
@@ -69,6 +70,11 @@ final class ConfigProvider extends BaseConfigProvider
             ],
             ClassFinderConfigKey::LISTENERS => [
                 BootMethodInvocation::class,
+                AutowireAttributeListener::class,
+            ],
+            ConfigKey::AUTOWIRE_ENTRY_CONTRIBUTORS => [
+                BootMethodInvocation::class,
+                AutowireAttributeListener::class,
             ],
             CompileConfigKey::LISTENER_COMPILERS => [
                 BootInvocationCompiler::class,

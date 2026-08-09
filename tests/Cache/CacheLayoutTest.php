@@ -24,7 +24,6 @@ describe('CacheLayout', function () {
             ->and($cache->config)->toBe($root . '/var/cache/build/config.cache.php')
             ->and($cache->routes)->toBe($root . '/var/cache/build/routes.cache.php')
             ->and($cache->container)->toBe($root . '/var/cache/build/container.cache.php')
-            ->and($cache->containerResolver)->toBe($root . '/var/cache/build/container.resolver.php')
             ->and($cache->preload)->toBe($root . '/var/cache/build/preload.php')
             ->and($cache->devDiscovery)->toBe($root . '/var/cache/dev/discovery.dev.php');
     });

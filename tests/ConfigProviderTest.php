@@ -12,6 +12,7 @@ use Componenta\App\Boot\DateTimeBootloader;
 use Componenta\App\Boot\ClassDiscoveryBootloader;
 use Componenta\App\ConfigKey as AppConfigKey;
 use Componenta\App\ConfigProvider;
+use Componenta\App\Discovery\Autowire\AutowireAttributeListener;
 use Componenta\App\Discovery\Compile\CompileCache;
 use Componenta\App\Discovery\Compile\DiscoveryCompiler;
 use Componenta\App\Discovery\Compile\DiscoveryCompilerFactory;
@@ -58,6 +59,10 @@ describe('app ConfigProvider', function () {
             CompiledBootInvocationBootloader::class,
         ])->and($config[ClassFinderConfigKey::LISTENERS])->toBe([
             BootMethodInvocation::class,
+            AutowireAttributeListener::class,
+        ])->and($config[AppConfigKey::AUTOWIRE_ENTRY_CONTRIBUTORS])->toBe([
+            BootMethodInvocation::class,
+            AutowireAttributeListener::class,
         ])->and($config[CompileConfigKey::LISTENER_COMPILERS])->toBe([
             BootInvocationCompiler::class,
         ])->and($config[DependencyConfigKey::DEPENDENCIES])->not->toHaveKey('autowires')
