@@ -6,7 +6,7 @@
     "require": {
         "php": "^8.4",
         "componenta/class-finder": "^1.0",
-        "componenta/config": "^2.0",
+        "componenta/config": "^2.0.1",
         "componenta/di": "^4.0",
         "componenta/path-resolver": "^1.0",
         "componenta/reflection": "^2.0",
