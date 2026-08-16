@@ -7,6 +7,7 @@ use Componenta\App\Config\ConfigFactory;
 use Componenta\App\Config\DiscoveryDefinition;
 use Componenta\App\Discovery\Compile\CompileCache;
 use Componenta\App\ConfigKey as AppConfigKey;
+use Componenta\Config\Environment;
 use Componenta\DI\ConfigKey;
 use Componenta\Stdlib\PathResolver;
 
@@ -70,7 +71,6 @@ describe('ConfigFactory', function () {
 
     it('loads the config definition in development', function () {
         $root = configFactoryRuntimeRoot();
-        file_put_contents($root . '/.env', "APP_ENV=development\n");
         $called = false;
 
         try {
@@ -85,6 +85,7 @@ describe('ConfigFactory', function () {
                         ],
                     );
                 },
+                new Environment(['APP_ENV' => 'development']),
             );
 
             expect($called)->toBeTrue()
@@ -98,7 +99,6 @@ describe('ConfigFactory', function () {
     it('loads discovery without injecting compile cache into generated config', function () {
         $root = configFactoryRuntimeRoot();
         mkdir($root . '/src', recursive: true);
-        file_put_contents($root . '/.env', "APP_ENV=development\n");
         file_put_contents($root . '/src/Example.php', "<?php\n\ndeclare(strict_types=1);\n\nfinal class Example {}\n");
 
         try {
@@ -112,6 +112,7 @@ describe('ConfigFactory', function () {
                         directories: ['src'],
                     ),
                 ),
+                new Environment(['APP_ENV' => 'development']),
             );
 
             $dependencies = $result->config->get(ConfigKey::DEPENDENCIES, []);
@@ -127,7 +128,6 @@ describe('ConfigFactory', function () {
     it('uses configured development cache directories before discovery runs', function () {
         $root = configFactoryRuntimeRoot();
         mkdir($root . '/src', recursive: true);
-        file_put_contents($root . '/.env', "APP_ENV=development\n");
         file_put_contents($root . '/src/Example.php', "<?php\n\ndeclare(strict_types=1);\n\nfinal class Example {}\n");
 
         try {
@@ -144,6 +144,7 @@ describe('ConfigFactory', function () {
                         directories: ['src'],
                     ),
                 ),
+                new Environment(['APP_ENV' => 'development']),
             );
 
             expect(is_file($root . '/runtime/cache/dev/discovery.dev.php'))->toBeTrue()
@@ -157,9 +158,9 @@ describe('ConfigFactory', function () {
     it('can build source config without replaying a cached compile delta', function () {
         $root = configFactoryRuntimeRoot();
         mkdir($root . '/src', recursive: true);
-        file_put_contents($root . '/.env', "APP_ENV=development\n");
         file_put_contents($root . '/src/Example.php', "<?php\n\ndeclare(strict_types=1);\n\nfinal class Example {}\n");
         $paths = new PathResolver($root);
+        $environment = new Environment(['APP_ENV' => 'development']);
         $definition = static fn (): ConfigDefinition => new ConfigDefinition(
             providers: [
                 static fn (): array => ['items' => ['source']],
@@ -170,17 +171,18 @@ describe('ConfigFactory', function () {
         );
 
         try {
-            ConfigFactory::create($paths, $definition);
+            ConfigFactory::create($paths, $definition, $environment);
 
             new CompileCache(
                 cacheFile: $root . '/var/cache/dev/compile.dev.php',
                 baselineFile: $root . '/var/cache/dev/discovery.dev.php',
             )->persist(['items' => ['compiled']]);
 
-            $withCachedDelta = ConfigFactory::create($paths, $definition);
+            $withCachedDelta = ConfigFactory::create($paths, $definition, $environment);
             $fromSource = ConfigFactory::create(
                 paths: $paths,
                 definition: $definition,
+                environment: $environment,
                 loadCachedCompileDelta: false,
             );
 
