@@ -13,6 +13,7 @@ use Componenta\App\Runner;
 use Componenta\App\Scope;
 use Componenta\Config\Config;
 use Componenta\Config\ContainerValue;
+use Componenta\Config\Environment;
 use Componenta\Scope\ScopeInterface;
 use Componenta\Scope\Scopes;
 use Psr\Container\ContainerInterface;
@@ -24,7 +25,8 @@ final class RunnerBootTargetContainer implements ContainerInterface
      */
     public function __construct(
         private readonly array $entries,
-    ) {}
+    ) {
+    }
 
     public function get(string $id): mixed
     {
@@ -41,7 +43,7 @@ final class RunnerBootTargetApp implements AppInterface
 {
     public bool $ran = false;
 
-    public function run(): ?int
+    public function run(): int
     {
         $this->ran = true;
 
@@ -53,7 +55,8 @@ final readonly class RunnerBootTargetAppFactory implements AppFactoryInterface
 {
     public function __construct(
         private AppInterface $app,
-    ) {}
+    ) {
+    }
 
     public function createApp(ScopeInterface $scope, ContainerValue $container): AppInterface
     {
@@ -68,7 +71,8 @@ final class RunnerBootTargetFactory implements BootTargetFactoryInterface
 
     public function __construct(
         private readonly object $target,
-    ) {}
+    ) {
+    }
 
     public function create(AppInterface $app, ScopeInterface $scope): object
     {
@@ -85,7 +89,8 @@ final class RunnerBootTargetProvider implements BootloaderProviderInterface
 
     public function __construct(
         private readonly BootloaderInterface $bootloader,
-    ) {}
+    ) {
+    }
 
     public function provideFor(BootContext $context): iterable
     {
@@ -111,7 +116,9 @@ final class RunnerBootTargetBootloader implements BootloaderInterface
     }
 }
 
-final readonly class RunnerBootTargetMarker {}
+final readonly class RunnerBootTargetMarker
+{
+}
 
 describe('boot target factory', function () {
     it('lets runner boot through an explicit target without mutating the PSR container', function () {
@@ -125,7 +132,7 @@ describe('boot target factory', function () {
             BootTargetFactoryInterface::class => $targetFactory,
             BootloaderProviderInterface::class => $provider,
         ]);
-        $config = new Config([]);
+        $config = new Config([], new Environment([]));
 
         $exitCode = Runner::run(Scope::HTTP, new ContainerValue($container, $config));
 

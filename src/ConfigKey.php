@@ -21,8 +21,14 @@ namespace Componenta\App;
  */
 class ConfigKey extends \Componenta\Config\ConfigKey
 {
-    /** Discovered classes from class finder */
-    public const string DISCOVERED = 'discovered';
+    /** Ordered list of independent application builder service IDs. */
+    public const string BUILDERS = 'app.builders';
+
+    /**
+     * Legacy scope map consumed as a fallback while runtime integration
+     * packages migrate to APP_ADAPTERS.
+     */
+    public const string APP_BY_SCOPE = 'app_by_scope';
 
     /**
      * Ordered list of bootloader class-strings driving the application's
@@ -34,18 +40,10 @@ class ConfigKey extends \Componenta\Config\ConfigKey
     public const string BOOTLOADERS = 'bootloaders';
 
     /**
-     * Compiled list of `#[Boot]` method invocations produced by app:build.
-     *
-     * Development discovers boot methods through class scanning. Production
-     * reads this metadata and invokes boot methods without reflection scans.
+     * Ordered list of app adapter class-strings. Runtime integration packages
+     * append their adapters here instead of replacing the base app factory.
      */
-    public const string BOOT_INVOCATIONS = 'boot.invocations';
-
-    /**
-     * Map of scope values to {@see AppInterface} implementation class-strings.
-     * Runtime packages register the application owning each execution scope.
-     */
-    public const string APP_BY_SCOPE = 'app.by_scope';
+    public const string APP_ADAPTERS = 'app.adapters';
 
     /**
      * Ordered list of boot target adapter class-strings. Each adapter wraps an
@@ -54,14 +52,16 @@ class ConfigKey extends \Componenta\Config\ConfigKey
     public const string BOOT_TARGET_ADAPTERS = 'boot.target_adapters';
 
     /**
-     * Ordered list of compile cache contributor service ids.
-     *
-     * Integration packages use contributors to append their own compiled
-     * discovery metadata without making the base app package depend on them.
+     * Transition-only key emitted by integration packages that have not yet
+     * migrated their old compile contributor to StaticDiscoveryExtractorInterface.
+     * The App 4 build/runtime deliberately ignores it.
      */
     public const string COMPILE_CACHE_CONTRIBUTORS = 'compile.cache_contributors';
 
-    /** Build-only services which contribute roots for compiled DI factories. */
+    /**
+     * Transition-only key emitted by integration packages that still publish
+     * removed DI AOT roots. The runtime deliberately ignores it.
+     */
     public const string AUTOWIRE_ENTRY_CONTRIBUTORS = 'compile.autowire_entry_contributors';
 
     /**

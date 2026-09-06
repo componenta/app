@@ -5,246 +5,283 @@ declare(strict_types=1);
 namespace Componenta\App\Config;
 
 use Componenta\App\Cache\CacheLayout;
-use Componenta\App\Discovery\Compile\CompileCache;
-use Componenta\App\Discovery\Discovery;
+use Componenta\App\Discovery\Artifact\ArtifactRepository;
+use Componenta\App\Discovery\DiscoverySnapshot;
+use Componenta\App\Discovery\StaticDiscoveryExtractorInterface;
+use Componenta\ClassFinder\ClassFinder;
 use Componenta\ClassFinder\ClassIteratorInterface;
-use Componenta\Config\Config;
-use Componenta\Config\ConfigLoader;
+use Componenta\Config\ConfigFactory as RuntimeConfigFactory;
+use Componenta\Config\ConfigKey;
 use Componenta\Config\Environment;
 use Componenta\Config\Loader\EnvLoader;
 use Componenta\Stdlib\PathResolverInterface;
 use RuntimeException;
-
-use function Componenta\Config\populate_env;
+use Throwable;
 
 final class ConfigFactory
 {
-    private function __construct() {}
+    private function __construct()
+    {
+    }
 
-    /** @param ConfigDefinitionInterface|callable(): ConfigDefinitionInterface $definition */
+    /**
+     * @param ConfigDefinitionInterface|callable(): ConfigDefinitionInterface $definition
+     */
     public static function create(
         PathResolverInterface $paths,
         ConfigDefinitionInterface|callable $definition,
         ?Environment $environment = null,
-        bool $loadCachedCompileDelta = true,
     ): ConfigFactoryResult {
-        $bootstrapCache = CacheLayout::bootstrap($paths);
-        $env = $environment ?? self::loadApplicationEnvironment($paths->baseDir);
-
-        if ($env->get('APP_ENV', 'development') !== 'development') {
-            $cached = ConfigLoader::loadFromFile($bootstrapCache->config);
-            return new ConfigFactoryResult(config: new Config($cached->toArray(), $env));
-        }
-
+        $environment ??= new EnvLoader($paths->baseDir)->load();
         $definition = self::definition($definition);
-        $providers = self::providers($definition->providers);
-        $cache = CacheLayout::fromConfig(ConfigLoader::load($env, ...$providers), $paths);
-        $discovery = $definition->discovery;
-        $discovered = null;
-        $cachedDelta = null;
-        $compileCache = null;
-        $discoveryCacheFile = null;
-
-        if ($discovery !== null) {
-            $discoveryCacheFile = $cache->devDiscovery;
-            $discovered = new Discovery($discoveryCacheFile)->discover(
-                dirs: self::resolveDirectories($paths, $discovery->directories),
-                exclude: $discovery->exclude,
-            );
-            $compileCache = new CompileCache(cacheFile: $cache->devCompile, baselineFile: $discoveryCacheFile);
-            if ($loadCachedCompileDelta) {
-                $cachedDelta = $compileCache->load();
-            }
-        }
-
-        $providers = self::prepareProviders(
-            providers: $providers,
-            discovered: $discovered,
-            cache: $cache,
-            discoveryCacheFile: $discoveryCacheFile,
+        $production = $environment->match('APP_ENV', 'production', false);
+        $artifacts = new ArtifactRepository(CacheLayout::bootstrap($paths));
+        $diagnostics = [];
+        $discovered = self::discovery(
+            paths: $paths,
+            definition: $definition,
+            production: $production,
+            artifacts: $artifacts,
+            diagnostics: $diagnostics,
         );
-        if ($cachedDelta !== null) {
-            $providers = self::withCachedDelta($providers, $cachedDelta);
-        }
+        $providers = self::providers(
+            definition: $definition,
+            discovered: $discovered,
+            semantic: self::semanticContributions(
+                definition: $definition,
+                discovered: $discovered,
+                production: $production,
+                artifacts: $artifacts,
+                diagnostics: $diagnostics,
+            ),
+            production: $production,
+            artifacts: $artifacts,
+            diagnostics: $diagnostics,
+        );
+        $providers[] = self::runtimeServices($paths, $discovered);
+        $composition = (new RuntimeConfigFactory())->create($environment, ...$providers);
 
         return new ConfigFactoryResult(
-            config: ConfigLoader::load($env, ...$providers),
+            composition: $composition,
             discovered: $discovered,
+            diagnostics: $diagnostics,
         );
     }
 
-    private static function loadApplicationEnvironment(string $baseDir): Environment
-    {
-        $process = self::processEnvironmentData();
-        $bootstrap = self::readEnvironmentFiles($baseDir, ['.env', '.env.local']);
-        $name = $process['APP_ENV'] ?? $bootstrap['APP_ENV'] ?? 'development';
-
-        if (!is_string($name) || $name === '' || preg_match('/^[A-Za-z0-9_-]+$/D', $name) !== 1) {
-            throw new RuntimeException('APP_ENV must contain only letters, digits, underscores, or hyphens.');
-        }
-
-        $loaded = self::readEnvironmentFiles($baseDir, array_values(array_unique([
-            '.env', '.env.local', '.env.' . $name, '.env.' . $name . '.local',
-        ])));
-
-        // Deployment values win even with the currently published legacy
-        // populate_env() implementation, which only checks $_ENV itself.
-        $toPopulate = array_diff_key($loaded, $process);
-        if ($toPopulate !== []) {
-            populate_env($toPopulate, override: false);
-        }
-
-        return new Environment([...$loaded, ...$process]);
-    }
-
-    /** @return array<string, mixed> */
-    private static function processEnvironmentData(): array
-    {
-        $data = [];
-        $native = getenv();
-        if (is_array($native)) {
-            foreach ($native as $key => $value) {
-                if (is_string($key) && is_string($value)) {
-                    $data[$key] = $value;
-                }
-            }
-        }
-        foreach ($_SERVER as $key => $value) {
-            if (is_string($key) && (is_scalar($value) || $value === null)) {
-                $data[$key] = $value;
-            }
-        }
-        foreach ($_ENV as $key => $value) {
-            if (is_string($key)) {
-                $data[$key] = $value;
-            }
-        }
-        return $data;
-    }
-
-    /** @param list<string> $files @return array<string, string> */
-    private static function readEnvironmentFiles(string $baseDir, array $files): array
-    {
-        // componenta/config after the environment-hardening release exposes a
-        // pure exact-file reader. This fallback keeps app main installable with
-        // the currently published config package until that release is tagged.
-        if (method_exists(EnvLoader::class, 'read')) {
-            /** @var array<string, string>|null $loaded */
-            $loaded = (new EnvLoader($baseDir, null, $files))->read();
-            return $loaded ?? [];
-        }
-
-        $loaded = [];
-        foreach ($files as $filename) {
-            $path = $baseDir . DIRECTORY_SEPARATOR . $filename;
-            if (!is_file($path)) {
-                continue;
-            }
-            $content = file_get_contents($path);
-            if ($content === false) {
-                throw new RuntimeException("Unable to read environment file: {$path}");
-            }
-            $loaded = [...$loaded, ...self::parseEnvironmentContent($content, $path)];
-        }
-        return $loaded;
-    }
-
-    /** @return array<string, string> */
-    private static function parseEnvironmentContent(string $content, string $path): array
-    {
-        $data = [];
-        foreach (explode("\n", $content) as $number => $line) {
-            $line = trim($line);
-            if ($line === '' || $line[0] === '#') {
-                continue;
-            }
-            $position = strpos($line, '=');
-            if ($position === false) {
-                throw new RuntimeException(sprintf('Invalid environment assignment in %s on line %d.', $path, $number + 1));
-            }
-            $key = trim(substr($line, 0, $position));
-            if (preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/D', $key) !== 1) {
-                throw new RuntimeException(sprintf('Invalid environment key in %s on line %d.', $path, $number + 1));
-            }
-            $value = trim(substr($line, $position + 1));
-            if (strlen($value) >= 2
-                && (($value[0] === '"' && str_ends_with($value, '"'))
-                    || ($value[0] === "'" && str_ends_with($value, "'")))
-            ) {
-                $quote = $value[0];
-                $value = substr($value, 1, -1);
-                if ($quote === '"') {
-                    $value = str_replace(['\\n', '\\r', '\\t', '\\"', '\\\\'], ["\n", "\r", "\t", '"', '\\'], $value);
-                }
-            }
-            $data[$key] = $value;
-        }
-        return $data;
-    }
-
-    /** @param ConfigDefinitionInterface|callable(): ConfigDefinitionInterface $definition */
+    /**
+     * @param ConfigDefinitionInterface|callable(): ConfigDefinitionInterface $definition
+     */
     private static function definition(ConfigDefinitionInterface|callable $definition): ConfigDefinitionInterface
     {
         if ($definition instanceof ConfigDefinitionInterface) {
             return $definition;
         }
+
         $resolved = $definition();
         if (!$resolved instanceof ConfigDefinitionInterface) {
-            throw new RuntimeException(sprintf('Config definition loader must return %s, got %s.', ConfigDefinitionInterface::class, get_debug_type($resolved)));
+            throw new RuntimeException(sprintf(
+                'Config definition loader must return %s, got %s.',
+                ConfigDefinitionInterface::class,
+                get_debug_type($resolved),
+            ));
         }
+
         return $resolved;
     }
 
-    /** @param iterable<callable(): array> $providers @return list<callable(): array> */
-    private static function providers(iterable $providers): array
-    {
-        $result = [];
-        foreach ($providers as $provider) {
+    /**
+     * @param list<string> $diagnostics
+     */
+    private static function discovery(
+        PathResolverInterface $paths,
+        ConfigDefinitionInterface $definition,
+        bool $production,
+        ArtifactRepository $artifacts,
+        array &$diagnostics,
+    ): ?ClassIteratorInterface {
+        $discovery = $definition->discovery;
+        if ($discovery === null) {
+            return null;
+        }
+
+        if ($production) {
+            $snapshot = $artifacts->read('classes', $diagnostics);
+            if ($snapshot !== null) {
+                try {
+                    return DiscoverySnapshot::materialize($snapshot, $paths);
+                } catch (Throwable $e) {
+                    $diagnostics[] = sprintf(
+                        'Discovery artifact section "classes" is invalid: %s',
+                        $e->getMessage(),
+                    );
+                }
+            }
+        }
+
+        return new ClassFinder()->find(
+            self::resolveDirectories($paths, $discovery->directories),
+            $discovery->exclude,
+        );
+    }
+
+    /**
+     * @param list<string> $diagnostics
+     * @param list<array<array-key, mixed>> $semantic
+     * @return list<callable(): mixed>
+     */
+    private static function providers(
+        ConfigDefinitionInterface $definition,
+        ?ClassIteratorInterface $discovered,
+        array $semantic,
+        bool $production,
+        ArtifactRepository $artifacts,
+        array &$diagnostics,
+    ): array {
+        $providers = [];
+        $sourceIndex = 0;
+        $semanticInserted = false;
+
+        foreach ($definition->providers as $provider) {
+            if ($provider instanceof ComposerPackageConfigProvider) {
+                $classes = null;
+                if ($production) {
+                    $classes = $artifacts->read('providers.' . $sourceIndex, $diagnostics);
+                    if ($classes !== null && !ComposerPackageConfigProvider::isClassList($classes)) {
+                        $diagnostics[] = sprintf(
+                            'Discovery artifact section "providers.%d" is invalid.',
+                            $sourceIndex,
+                        );
+                        $classes = null;
+                    }
+                }
+
+                if ($classes === null) {
+                    $classes = $provider->classes();
+                }
+
+                foreach ($provider->materialize($classes) as $materialized) {
+                    $prepared = self::prepareProvider($materialized, $discovered);
+                    $providers[] = $prepared;
+                    if ($prepared instanceof AttributeConfigProvider && !$semanticInserted) {
+                        self::appendSemantic($providers, $semantic);
+                        $semanticInserted = true;
+                    }
+                }
+                $sourceIndex++;
+                continue;
+            }
+
             if (!is_callable($provider)) {
-                throw new RuntimeException(sprintf('Config provider must be callable, got %s.', get_debug_type($provider)));
+                throw new RuntimeException(sprintf(
+                    'Config provider must be callable or %s, got %s.',
+                    ComposerPackageConfigProvider::class,
+                    get_debug_type($provider),
+                ));
             }
-            $result[] = $provider;
-        }
-        return $result;
-    }
 
-    /** @param list<callable(): array> $providers @return list<callable(): array> */
-    private static function prepareProviders(array $providers, ?ClassIteratorInterface $discovered, CacheLayout $cache, ?string $discoveryCacheFile): array
-    {
-        $prepared = [];
-        foreach ($providers as $provider) {
-            if ($provider instanceof DiscoveryAwareConfigProviderInterface) {
-                $provider = $provider->withDiscovered($discovered);
+            $prepared = self::prepareProvider($provider, $discovered);
+            $providers[] = $prepared;
+            if ($prepared instanceof AttributeConfigProvider && !$semanticInserted) {
+                self::appendSemantic($providers, $semantic);
+                $semanticInserted = true;
             }
-            if ($provider instanceof AttributeConfigProvider && $discovered !== null && $discoveryCacheFile !== null) {
-                $provider = new CachedAttributeConfigProvider(inner: $provider(...), cacheFile: $cache->devAttributeConfig, baselineFile: $discoveryCacheFile);
-            }
-            $prepared[] = $provider;
         }
-        return $prepared;
-    }
 
-    /** @param list<callable(): array> $providers @param array<string, mixed> $cachedDelta @return list<callable(): array> */
-    private static function withCachedDelta(array $providers, array $cachedDelta): array
-    {
-        $deltaProvider = static fn (): array => $cachedDelta;
-        foreach ($providers as $index => $provider) {
-            if ($provider instanceof CachedAttributeConfigProvider || $provider instanceof AttributeConfigProvider) {
-                array_splice($providers, $index + 1, 0, [$deltaProvider]);
-                return $providers;
-            }
+        if (!$semanticInserted && $semantic !== []) {
+            $semanticProviders = [];
+            self::appendSemantic($semanticProviders, $semantic);
+            array_unshift($providers, ...$semanticProviders);
         }
-        array_unshift($providers, $deltaProvider);
+
         return $providers;
     }
 
-    /** @param list<string> $directories @return list<string> */
+    /**
+     * @param list<string> $diagnostics
+     * @return list<array<array-key, mixed>>
+     */
+    private static function semanticContributions(
+        ConfigDefinitionInterface $definition,
+        ?ClassIteratorInterface $discovered,
+        bool $production,
+        ArtifactRepository $artifacts,
+        array &$diagnostics,
+    ): array {
+        if ($definition->discovery === null || $discovered === null) {
+            return [];
+        }
+
+        $contributions = [];
+        $keys = [];
+
+        foreach ($definition->discovery->extractors as $extractor) {
+            if (!$extractor instanceof StaticDiscoveryExtractorInterface) {
+                throw new RuntimeException(sprintf(
+                    'Discovery extractor must implement %s, got %s.',
+                    StaticDiscoveryExtractorInterface::class,
+                    get_debug_type($extractor),
+                ));
+            }
+
+            $key = $extractor->key();
+            if (isset($keys[$key])) {
+                throw new RuntimeException(sprintf('Duplicate discovery extractor key "%s".', $key));
+            }
+            $keys[$key] = true;
+
+            $contribution = $production
+                ? $artifacts->read('semantic.' . $key, $diagnostics)
+                : null;
+            $contributions[] = $contribution ?? $extractor->extract($discovered);
+        }
+
+        return $contributions;
+    }
+
+    /**
+     * @param list<callable(): mixed> $providers
+     * @param list<array<array-key, mixed>> $semantic
+     */
+    private static function appendSemantic(array &$providers, array $semantic): void
+    {
+        foreach ($semantic as $contribution) {
+            $providers[] = static fn (): array => $contribution;
+        }
+    }
+
+    private static function prepareProvider(
+        callable $provider,
+        ?ClassIteratorInterface $discovered,
+    ): callable {
+        return $provider instanceof DiscoveryAwareConfigProviderInterface
+            ? $provider->withDiscovered($discovered)
+            : $provider;
+    }
+
+    private static function runtimeServices(
+        PathResolverInterface $paths,
+        ?ClassIteratorInterface $discovered,
+    ): callable {
+        return static function () use ($paths, $discovered): array {
+            $services = [PathResolverInterface::class => $paths];
+            if ($discovered !== null) {
+                $services[ClassIteratorInterface::class] = $discovered;
+            }
+
+            return [
+                ConfigKey::DEPENDENCIES => [
+                    ConfigKey::SERVICES => $services,
+                ],
+            ];
+        };
+    }
+
+    /**
+     * @param list<string> $directories
+     * @return list<string>
+     */
     private static function resolveDirectories(PathResolverInterface $paths, array $directories): array
     {
-        $resolved = [];
-        foreach ($directories as $directory) {
-            $resolved[] = $paths->resolve($directory);
-        }
-        return $resolved;
+        return array_map($paths->resolve(...), $directories);
     }
 }

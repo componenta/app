@@ -3,7 +3,6 @@
 declare(strict_types=1);
 
 use Componenta\App\Config\ComposerPackageConfigProvider;
-use Componenta\Config\ConfigKey;
 use Componenta\Config\ConfigProvider;
 
 function composerPackageConfigProviderRuntimeFile(string $name): string
@@ -30,17 +29,17 @@ function removeComposerPackageConfigProviderRuntimeFile(string $file): void
     }
 }
 
-it('returns empty config when generated provider file does not exist', function () {
+it('returns an empty provider list when generated provider file does not exist', function () {
     $file = composerPackageConfigProviderRuntimeFile('missing.php');
 
     try {
-        expect((new ComposerPackageConfigProvider($file))())->toBe([]);
+        expect((new ComposerPackageConfigProvider($file))->classes())->toBe([]);
     } finally {
         removeComposerPackageConfigProviderRuntimeFile($file);
     }
 });
 
-it('loads and merges composer package providers in file order', function () {
+it('extracts and materializes composer package providers in file order without invoking them', function () {
     $file = composerPackageConfigProviderRuntimeFile('providers.php');
     file_put_contents(
         $file,
@@ -51,12 +50,20 @@ it('loads and merges composer package providers in file order', function () {
     );
 
     try {
-        $config = (new ComposerPackageConfigProvider($file))();
+        ComposerPackageConfigProviderFirstFixture::$calls = 0;
+        ComposerPackageConfigProviderSecondFixture::$calls = 0;
+        $source = new ComposerPackageConfigProvider($file);
+        $classes = $source->classes();
+        $providers = iterator_to_array($source->materialize($classes));
 
-        expect($config['feature']['enabled'])->toBeTrue()
-            ->and($config['feature']['name'])->toBe('second')
-            ->and($config[ConfigKey::DEPENDENCIES][ConfigKey::SERVICES]['first'])->toBe('registered')
-            ->and($config[ConfigKey::DEPENDENCIES][ConfigKey::SERVICES]['second'])->toBe('registered');
+        expect($classes)->toBe([
+            ComposerPackageConfigProviderFirstFixture::class,
+            ComposerPackageConfigProviderSecondFixture::class,
+        ])->and($providers)->toHaveCount(2)
+            ->and($providers[0])->toBeInstanceOf(ComposerPackageConfigProviderFirstFixture::class)
+            ->and($providers[1])->toBeInstanceOf(ComposerPackageConfigProviderSecondFixture::class)
+            ->and(ComposerPackageConfigProviderFirstFixture::$calls)->toBe(0)
+            ->and(ComposerPackageConfigProviderSecondFixture::$calls)->toBe(0);
     } finally {
         removeComposerPackageConfigProviderRuntimeFile($file);
     }
@@ -67,7 +74,7 @@ it('rejects invalid generated provider files', function () {
     file_put_contents($file, "<?php\n\ndeclare(strict_types=1);\n\nreturn 'invalid';\n");
 
     try {
-        expect(fn () => (new ComposerPackageConfigProvider($file))())
+        expect(fn () => (new ComposerPackageConfigProvider($file))->classes())
             ->toThrow(RuntimeException::class, 'must return an iterable list');
     } finally {
         removeComposerPackageConfigProviderRuntimeFile($file);
@@ -76,8 +83,12 @@ it('rejects invalid generated provider files', function () {
 
 final class ComposerPackageConfigProviderFirstFixture extends ConfigProvider
 {
+    public static int $calls = 0;
+
     protected function getConfig(): array
     {
+        self::$calls++;
+
         return [
             'feature' => [
                 'enabled' => true,
@@ -96,8 +107,12 @@ final class ComposerPackageConfigProviderFirstFixture extends ConfigProvider
 
 final class ComposerPackageConfigProviderSecondFixture extends ConfigProvider
 {
+    public static int $calls = 0;
+
     protected function getConfig(): array
     {
+        self::$calls++;
+
         return [
             'feature' => [
                 'name' => 'second',

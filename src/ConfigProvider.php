@@ -11,44 +11,21 @@ use Componenta\App\Boot\BootloaderProvider;
 use Componenta\App\Boot\BootloaderProviderInterface;
 use Componenta\App\Boot\BootTargetFactory;
 use Componenta\App\Boot\BootTargetFactoryInterface;
-use Componenta\App\Boot\Compile\BootInvocationCompiler;
-use Componenta\App\Boot\CompiledBootInvocationBootloader;
-use Componenta\App\Boot\DateTimeBootloader;
 use Componenta\App\Boot\ClassDiscoveryBootloader;
-use Componenta\App\Cache\CacheLayout;
-use Componenta\App\Discovery\Autowire\AutowireAttributeListener;
-use Componenta\App\Discovery\ListenerCompiler;
-use Componenta\App\Discovery\ListenerRestorer;
-use Componenta\App\Discovery\Compile\CompileCache;
-use Componenta\App\Discovery\Compile\DiscoveryCompiler;
-use Componenta\App\Discovery\Compile\DiscoveryCompilerFactory;
-use Componenta\ClassFinder\Compile\ConfigKey as CompileConfigKey;
+use Componenta\App\Boot\DateTimeBootloader;
+use Componenta\App\Build\ApplicationBuildOrchestrator;
+use Componenta\App\Build\ApplicationBuildOrchestratorFactory;
 use Componenta\ClassFinder\ConfigKey as ClassFinderConfigKey;
-use Componenta\Config\ContainerValue;
 use Componenta\Config\ConfigProvider as BaseConfigProvider;
-use Componenta\Stdlib\PathResolverInterface;
 
 final class ConfigProvider extends BaseConfigProvider
 {
     protected function getFactories(): array
     {
         return [
-            BootTargetFactory::class => static fn (ContainerValue $container): BootTargetFactory => new BootTargetFactory($container),
-            DiscoveryCompiler::class => DiscoveryCompilerFactory::class,
-            CompileCache::class => static function (ContainerValue $container): CompileCache {
-                $cache = CacheLayout::fromConfig(
-                    $container->config,
-                    $container->get(PathResolverInterface::class, PathResolverInterface::class),
-                );
-
-                return new CompileCache(
-                    cacheFile:    $cache->devCompile,
-                    baselineFile: $cache->devDiscovery,
-                );
-            },
+            ApplicationBuildOrchestrator::class => ApplicationBuildOrchestratorFactory::class,
         ];
     }
-
 
     protected function getAliases(): array
     {
@@ -66,18 +43,9 @@ final class ConfigProvider extends BaseConfigProvider
             ConfigKey::BOOTLOADERS => [
                 DateTimeBootloader::class,
                 ClassDiscoveryBootloader::class,
-                CompiledBootInvocationBootloader::class,
             ],
             ClassFinderConfigKey::LISTENERS => [
                 BootMethodInvocation::class,
-                AutowireAttributeListener::class,
-            ],
-            ConfigKey::AUTOWIRE_ENTRY_CONTRIBUTORS => [
-                BootMethodInvocation::class,
-                AutowireAttributeListener::class,
-            ],
-            CompileConfigKey::LISTENER_COMPILERS => [
-                BootInvocationCompiler::class,
             ],
         ];
     }

@@ -10,8 +10,6 @@ use Componenta\DI\Attribute\Config as ConfigAttr;
 use Componenta\DI\Attribute\EntryId;
 use Componenta\DI\Attribute\Env;
 use Componenta\DI\CallableExecutorInterface;
-use Componenta\DI\Resolver\ConfigValueExtractor;
-use Componenta\DI\Resolver\EnvNameNormalizer;
 use OutOfBoundsException;
 use Psr\Container\ContainerInterface;
 use RuntimeException;
@@ -21,13 +19,10 @@ use RuntimeException;
  */
 final readonly class BootInvocationRunner implements BootInvocationRunnerInterface
 {
-    private ConfigValueExtractor $configExtractor;
-
     public function __construct(
         private ContainerInterface $container,
         private CallableExecutorInterface $executor,
     ) {
-        $this->configExtractor = new ConfigValueExtractor();
     }
 
     public function run(iterable $invocations): void
@@ -68,27 +63,25 @@ final readonly class BootInvocationRunner implements BootInvocationRunnerInterfa
 
     private function resolveConfigParam(ConfigAttr $attribute, string $name): mixed
     {
-        return $this->configExtractor->extract(
-            $this->container->get(Config::class),
-            $attribute,
-            $name,
-        );
+        $config = $this->container->get(Config::class);
+        if (!$config instanceof Config) {
+            throw new RuntimeException(sprintf('Container entry %s must be %s.', Config::class, Config::class));
+        }
+
+        return $config->get($attribute->path ?? $name, $attribute->default);
     }
 
     private function resolveEnvParam(Env $attribute, string $name): mixed
     {
         $config = $this->container->get(Config::class);
-        $environment = $config->environment;
-
-        if ($environment === null) {
-            if ($attribute->default !== DefaultValue::None) {
-                return $attribute->default;
-            }
-
-            throw new RuntimeException('Environment not available in Config');
+        if (!$config instanceof Config) {
+            throw new RuntimeException(sprintf('Container entry %s must be %s.', Config::class, Config::class));
         }
 
-        $envName = $attribute->name ?? EnvNameNormalizer::toEnvName($name);
+        $environment = $config->environment;
+        $envName = $attribute->name ?? strtoupper(
+            preg_replace('/([a-z])([A-Z])/', '$1_$2', $name) ?? $name,
+        );
 
         if (!$environment->has($envName)) {
             if ($attribute->default !== DefaultValue::None) {

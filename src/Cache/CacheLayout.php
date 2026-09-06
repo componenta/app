@@ -5,22 +5,14 @@ declare(strict_types=1);
 namespace Componenta\App\Cache;
 
 use Componenta\App\ConfigKey;
-use Componenta\Stdlib\PathResolverInterface;
 use Componenta\Config\Config;
+use Componenta\Stdlib\PathResolverInterface;
 use RuntimeException;
 
 final class CacheLayout
 {
-    public const string CONFIG = 'config.cache.php';
-    public const string ROUTES = 'routes.cache.php';
-    public const string CONTAINER = 'container.cache.php';
-    public const string DISCOVERY = 'discovery.cache.php';
-    public const string POLICIES = 'policies.cache.php';
-    public const string INTERCEPTORS = 'interceptors.cache.php';
-    public const string PRELOAD = 'preload.php';
-    public const string DEV_DISCOVERY = 'discovery.dev.php';
-    public const string DEV_ATTRIBUTE_CONFIG = 'attribute-config.dev.php';
-    public const string DEV_COMPILE = 'compile.dev.php';
+    public const string CURRENT = 'current.json';
+    public const string GENERATIONS = 'generations';
 
     public string $buildDir {
         get => $this->paths->resolve($this->buildDirectory);
@@ -34,45 +26,12 @@ final class CacheLayout
         get => $this->paths->resolve($this->runtimeDirectory);
     }
 
-    public string $config {
-        get => $this->build(self::CONFIG);
+    public string $current {
+        get => $this->build(self::CURRENT);
     }
 
-    public string $routes {
-        get => $this->build(self::ROUTES);
-    }
-
-    public string $container {
-        get => $this->build(self::CONTAINER);
-    }
-
-
-    public string $discovery {
-        get => $this->build(self::DISCOVERY);
-    }
-
-    public string $policies {
-        get => $this->build(self::POLICIES);
-    }
-
-    public string $interceptors {
-        get => $this->build(self::INTERCEPTORS);
-    }
-
-    public string $preload {
-        get => $this->build(self::PRELOAD);
-    }
-
-    public string $devDiscovery {
-        get => $this->dev(self::DEV_DISCOVERY);
-    }
-
-    public string $devAttributeConfig {
-        get => $this->dev(self::DEV_ATTRIBUTE_CONFIG);
-    }
-
-    public string $devCompile {
-        get => $this->dev(self::DEV_COMPILE);
+    public string $generations {
+        get => $this->build(self::GENERATIONS);
     }
 
     public function __construct(
@@ -89,19 +48,19 @@ final class CacheLayout
     public static function fromConfig(Config $config, PathResolverInterface $paths): self
     {
         return new self(
-            paths:            $paths,
-            buildDirectory:   ConfigKey::DEFAULT_CACHE_BUILD_DIR,
-            devDirectory:     (string) $config->get(ConfigKey::CACHE_DEV_DIR, ConfigKey::DEFAULT_CACHE_DEV_DIR),
-            runtimeDirectory: (string) $config->get(ConfigKey::CACHE_RUNTIME_DIR, ConfigKey::DEFAULT_CACHE_RUNTIME_DIR),
+            paths: $paths,
+            buildDirectory: ConfigKey::DEFAULT_CACHE_BUILD_DIR,
+            devDirectory: $config->string(ConfigKey::CACHE_DEV_DIR, ConfigKey::DEFAULT_CACHE_DEV_DIR),
+            runtimeDirectory: $config->string(ConfigKey::CACHE_RUNTIME_DIR, ConfigKey::DEFAULT_CACHE_RUNTIME_DIR),
         );
     }
 
     public static function bootstrap(PathResolverInterface $paths): self
     {
         return new self(
-            paths:            $paths,
-            buildDirectory:   ConfigKey::DEFAULT_CACHE_BUILD_DIR,
-            devDirectory:     ConfigKey::DEFAULT_CACHE_DEV_DIR,
+            paths: $paths,
+            buildDirectory: ConfigKey::DEFAULT_CACHE_BUILD_DIR,
+            devDirectory: ConfigKey::DEFAULT_CACHE_DEV_DIR,
             runtimeDirectory: ConfigKey::DEFAULT_CACHE_RUNTIME_DIR,
         );
     }
@@ -111,18 +70,32 @@ final class CacheLayout
         return self::bootstrap($paths);
     }
 
-    public function build(string $file): string
+    public function build(string $path): string
     {
-        return $this->paths->resolve($this->buildDirectory . '/' . ltrim($file, '/\\'));
+        return $this->paths->resolve($this->buildDirectory . '/' . ltrim($path, '/\\'));
     }
 
-    public function dev(string $file): string
+    public function dev(string $path): string
     {
-        return $this->paths->resolve($this->devDirectory . '/' . ltrim($file, '/\\'));
+        return $this->paths->resolve($this->devDirectory . '/' . ltrim($path, '/\\'));
     }
 
-    public function runtime(string $file): string
+    public function runtime(string $path): string
     {
-        return $this->paths->resolve($this->runtimeDirectory . '/' . ltrim($file, '/\\'));
+        return $this->paths->resolve($this->runtimeDirectory . '/' . ltrim($path, '/\\'));
+    }
+
+    public function generation(string $generation): string
+    {
+        if (preg_match('/^[a-f0-9]{64}$/D', $generation) !== 1) {
+            throw new RuntimeException('Discovery generation id must be a SHA-256 hash.');
+        }
+
+        return $this->generations . '/' . $generation;
+    }
+
+    public function manifest(string $generation): string
+    {
+        return $this->generation($generation) . '/manifest.json';
     }
 }

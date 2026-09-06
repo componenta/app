@@ -47,7 +47,7 @@ abstract class Bootloader implements BootloaderInterface
             ));
         }
 
-        $this->invoker = $this->container->get(CallableInvokerInterface::class);
+        $this->invoker = $this->container->get(CallableInvokerInterface::class, CallableInvokerInterface::class);
         $this->invoker->call([$this, '__invoke']);
     }
 }

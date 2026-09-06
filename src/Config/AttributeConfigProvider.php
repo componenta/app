@@ -9,31 +9,24 @@ use Componenta\Config\Exception\ConfigException;
 use Componenta\Reflection\Reflection;
 use Throwable;
 
-use function Componenta\Config\config_merge;
-
 final readonly class AttributeConfigProvider implements DiscoveryAwareConfigProviderInterface
 {
     public function __construct(
         public ?ClassIteratorInterface $discovered = null,
-    ) {}
+    ) {
+    }
 
     public function withDiscovered(?ClassIteratorInterface $discovered): static
     {
         return new self($discovered);
     }
 
-    /**
-     * @return array<string, mixed>
-     *
-     * @throws ConfigException
-     */
-    public function __invoke(): array
+    /** @return iterable<array<array-key, mixed>> */
+    public function __invoke(): iterable
     {
         if ($this->discovered === null) {
-            return [];
+            return;
         }
-
-        $result = [];
 
         foreach ($this->discovered as $class) {
             if (!Reflection::hasMetadata($class->reflector, AsConfig::class)) {
@@ -41,32 +34,46 @@ final readonly class AttributeConfigProvider implements DiscoveryAwareConfigProv
             }
 
             try {
-                $data = $class->reflector->newInstance()();
+                $provider = $class->reflector->newInstance();
+                if (!is_callable($provider)) {
+                    throw new ConfigException(sprintf(
+                        'Config provider %s must be callable.',
+                        $class->reflector->getName(),
+                    ));
+                }
+
+                $provided = $provider();
             } catch (Throwable $e) {
                 throw new ConfigException(
                     sprintf('Failed to load config from %s: %s', $class->reflector->getName(), $e->getMessage()),
+                    previous: $e,
                 );
             }
 
-            if (!is_array($data)) {
-                if (is_iterable($data)) {
-                    $data = iterator_to_array($data);
-                } else {
-                    throw new ConfigException(sprintf(
-                        'Config provider %s must return array or iterable, %s given',
-                        $class->reflector->getName(),
-                        get_debug_type($data),
-                    ));
-                }
-            }
-
-            if ($data === []) {
+            if (is_array($provided)) {
+                yield $provided;
                 continue;
             }
 
-            $result = config_merge($result, $data);
-        }
+            if (!is_iterable($provided)) {
+                throw new ConfigException(sprintf(
+                    'Config provider %s must return array or iterable, %s given',
+                    $class->reflector->getName(),
+                    get_debug_type($provided),
+                ));
+            }
 
-        return $result;
+            foreach ($provided as $contribution) {
+                if (!is_array($contribution)) {
+                    throw new ConfigException(sprintf(
+                        'Config contribution from %s must be an array, %s given',
+                        $class->reflector->getName(),
+                        get_debug_type($contribution),
+                    ));
+                }
+
+                yield $contribution;
+            }
+        }
     }
 }

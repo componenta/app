@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Componenta\App\Config;
 
+use Componenta\App\Discovery\StaticDiscoveryExtractorInterface;
+
 interface DiscoveryDefinitionInterface
 {
     /**
@@ -16,4 +18,6 @@ interface DiscoveryDefinitionInterface
      */
     public array $exclude { get; }
 
+    /** @var iterable<StaticDiscoveryExtractorInterface> */
+    public iterable $extractors { get; }
 }

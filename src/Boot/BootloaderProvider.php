@@ -6,6 +6,7 @@ namespace Componenta\App\Boot;
 
 use Componenta\App\ConfigKey;
 use LogicException;
+
 /**
  * Default provider - reads {@see ConfigKey::BOOTLOADERS} from config,
  * resolves each entry, and yields bootloaders accepted by their runtime
@@ -15,7 +16,15 @@ final class BootloaderProvider implements BootloaderProviderInterface
 {
     public function provideFor(BootContext $context): iterable
     {
-        foreach ($context->container->config->get(ConfigKey::BOOTLOADERS, []) as $bootloader) {
+        $bootloaders = $context->container->config->get(ConfigKey::BOOTLOADERS, []);
+        if (!is_array($bootloaders)) {
+            throw new LogicException(sprintf(
+                'Config key "%s" must contain a list of bootloader class-strings.',
+                ConfigKey::BOOTLOADERS,
+            ));
+        }
+
+        foreach ($bootloaders as $bootloader) {
             if (!is_string($bootloader) || !is_a($bootloader, BootloaderInterface::class, true)) {
                 throw new LogicException(sprintf(
                     'Bootloader entry must be a class-string implementing %s, %s given.',
@@ -24,9 +33,9 @@ final class BootloaderProvider implements BootloaderProviderInterface
                 ));
             }
 
-            $instance = $context->container->get($bootloader);
+            $instance = $context->container->get($bootloader, BootloaderInterface::class);
 
-            if (!$instance instanceof BootloaderInterface || !$instance->supports($context)) {
+            if (!$instance->supports($context)) {
                 continue;
             }
 

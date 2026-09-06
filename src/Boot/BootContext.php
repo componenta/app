@@ -21,7 +21,8 @@ final readonly class BootContext
         public ContainerValue $container,
         public ScopeInterface $scope,
         public object $target,
-    ) {}
+    ) {
+    }
 
     /**
      * @template T of object

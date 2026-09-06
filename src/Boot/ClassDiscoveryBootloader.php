@@ -4,36 +4,14 @@ declare(strict_types=1);
 
 namespace Componenta\App\Boot;
 
-use Componenta\App\ConfigKey;
-use Componenta\App\Discovery\Compile\CompileCache;
-use Componenta\App\Discovery\Compile\CompileCacheContributorInterface;
-use Componenta\App\Discovery\ListenerCompiler;
-use Componenta\App\Discovery\ListenerRestorer;
 use Componenta\App\Scope;
-use Componenta\Scope\Scopes;
 use Componenta\ClassFinder\ClassIteratorInterface;
 use Componenta\ClassFinder\ClassListenerNotifier;
-use Componenta\Config\ContainerValue;
-use RuntimeException;
-use function Componenta\Config\config_merge;
+use Componenta\Scope\Scopes;
 
 /**
- * Drives class-listener population once per request.
- *
- * Dev cold: `Discovery` scanned and handed a {@see ClassIteratorInterface}
- * into the container. We fan the iterator through {@see ClassListenerNotifier},
- * then - if a {@see CompileCache} is available - snapshot the full compile
- * output (discovery target map plus package contributions) so the next request takes the
- * warm branch.
- *
- * Dev warm / prod: `ListenerRestorer::CACHE_KEY` is already in config
- * (injected by `config.php` from the cache file, or baked into
- * `config.cache.php` by the CLI compile command). Replay it - no
- * filesystem scan, targeted per-listener reflection only on the subset
- * each listener claims via `#[ListenTo]`. Prod skips `#[DevOnly]`
- * listeners entirely; dev restores them too so attribute-based locators
- * stay functional when their Plain counterparts don't have their maps
- * yet.
+ * Feeds the same semantic listeners from either source discovery or a
+ * verified production snapshot. Source selection happens in ConfigFactory.
  */
 final class ClassDiscoveryBootloader implements BootloaderInterface
 {
@@ -46,76 +24,12 @@ final class ClassDiscoveryBootloader implements BootloaderInterface
     public function boot(BootContext $context): void
     {
         $container = $context->container;
-        $config = $container->config;
-        $isProduction = $config->environment?->match('APP_ENV', 'production') === true;
-
-        if (($config->has(ListenerRestorer::CACHE_KEY) || $config->has(ListenerRestorer::CACHE_FILE_KEY))
-            && $container->has(ListenerRestorer::class)
-        ) {
-            $restorer = $container->get(ListenerRestorer::class, ListenerRestorer::class);
-
-            if ($restorer->hasCache()) {
-                $restorer->restore(includeDevOnly: !$isProduction);
-
-                return;
-            }
-        }
-
-        if ($isProduction || !$container->has(ClassIteratorInterface::class)) {
+        if (!$container->has(ClassIteratorInterface::class)) {
             return;
         }
 
-        $iterator = $container->get(ClassIteratorInterface::class, ClassIteratorInterface::class);
-        $container->get(ClassListenerNotifier::class, ClassListenerNotifier::class)->notify($iterator);
-
-        if ($container->has(CompileCache::class)) {
-            $this->persistCompileDelta($container, $iterator);
-        }
-    }
-
-    private function persistCompileDelta(ContainerValue $container, ClassIteratorInterface $iterator): void
-    {
-        $discoveryCache = $container->get(ListenerCompiler::class, ListenerCompiler::class)->compile($iterator);
-        $classes = $discoveryCache['classes'] ?? [];
-        $hasFilteredListeners = isset($discoveryCache['targets']) || isset($discoveryCache['empty_targets']);
-
-        $delta = $classes === [] && !$hasFilteredListeners
-            ? []
-            : [ListenerRestorer::CACHE_KEY => $discoveryCache];
-
-        foreach ($this->compileContributors($container) as $contributor) {
-            $delta = config_merge($delta, $contributor->compile($classes));
-        }
-
-        $container->get(CompileCache::class, CompileCache::class)->persist($delta);
-    }
-
-    /**
-     * @return list<CompileCacheContributorInterface>
-     */
-    private function compileContributors(ContainerValue $container): array
-    {
-        $entries = $container->config->get(ConfigKey::COMPILE_CACHE_CONTRIBUTORS, []);
-
-        if (!is_array($entries)) {
-            throw new RuntimeException(sprintf('%s config value must be an array.', ConfigKey::COMPILE_CACHE_CONTRIBUTORS));
-        }
-
-        $contributors = [];
-
-        foreach ($entries as $entry) {
-            $contributor = is_string($entry) ? $container->get($entry) : $entry;
-
-            if (!$contributor instanceof CompileCacheContributorInterface) {
-                throw new RuntimeException(sprintf(
-                    'Compile cache contributor must implement %s.',
-                    CompileCacheContributorInterface::class,
-                ));
-            }
-
-            $contributors[] = $contributor;
-        }
-
-        return $contributors;
+        $container
+            ->get(ClassListenerNotifier::class, ClassListenerNotifier::class)
+            ->notify($container->get(ClassIteratorInterface::class, ClassIteratorInterface::class));
     }
 }

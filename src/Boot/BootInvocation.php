@@ -18,5 +18,6 @@ final readonly class BootInvocation
         public string $method,
         public int $priority = 0,
         public array $params = [],
-    ) {}
+    ) {
+    }
 }

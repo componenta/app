@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Componenta\App\Boot;
 
-use Attribute;
+use Attribute;
 
 #[Attribute(Attribute::TARGET_METHOD | Attribute::IS_REPEATABLE)]
 final readonly class Boot
@@ -15,5 +15,6 @@ final readonly class Boot
     public function __construct(
         public int $priority = 0,
         public array $params = [],
-    ) {}
+    ) {
+    }
 }

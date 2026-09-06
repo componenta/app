@@ -6,42 +6,52 @@ namespace Componenta\App\Config;
 
 use RuntimeException;
 
-use function Componenta\Config\config_merge;
-
+/**
+ * Source descriptor for Composer's generated ordered package-provider list.
+ *
+ * Extraction never instantiates or invokes a provider. App ConfigFactory
+ * materializes the verified/source class list and remains the sole owner of
+ * provider invocation and merge order.
+ */
 final readonly class ComposerPackageConfigProvider
 {
-    public function __construct(
-        private string $file,
-    ) {}
+    public function __construct(private string $file)
+    {
+    }
 
-    public function __invoke(): array
+    /** @return list<class-string> */
+    public function classes(): array
     {
         if (!is_file($this->file)) {
             return [];
         }
 
-        $providerClasses = require $this->file;
-
-        if (!is_iterable($providerClasses)) {
+        $classes = require $this->file;
+        if (!is_array($classes) || !self::isClassList($classes)) {
             throw new RuntimeException(sprintf(
                 'Composer package provider file "%s" must return an iterable list of provider classes.',
                 $this->file,
             ));
         }
 
-        $config = [];
+        return $classes;
+    }
 
-        foreach ($providerClasses as $providerClass) {
-            if (!is_string($providerClass) || !class_exists($providerClass)) {
+    /**
+     * @param list<class-string> $classes
+     * @return iterable<callable(): mixed>
+     */
+    public function materialize(array $classes): iterable
+    {
+        foreach ($classes as $providerClass) {
+            if (!class_exists($providerClass)) {
                 throw new RuntimeException(sprintf(
-                    'Composer package provider must be an existing class-string, got %s (%s).',
-                    get_debug_type($providerClass),
-                    is_scalar($providerClass) ? (string) $providerClass : 'non-scalar',
+                    'Composer package provider must be an existing class-string, got "%s".',
+                    $providerClass,
                 ));
             }
 
             $provider = new $providerClass();
-
             if (!is_callable($provider)) {
                 throw new RuntimeException(sprintf(
                     'Composer package provider "%s" must be callable.',
@@ -49,21 +59,23 @@ final readonly class ComposerPackageConfigProvider
                 ));
             }
 
-            $providerConfig = $provider();
+            yield $provider;
+        }
+    }
 
-            if (!is_array($providerConfig)) {
-                throw new RuntimeException(sprintf(
-                    'Composer package provider "%s" must return an array, got %s.',
-                    $providerClass,
-                    get_debug_type($providerConfig),
-                ));
-            }
+    /** @phpstan-assert-if-true list<class-string> $value */
+    public static function isClassList(mixed $value): bool
+    {
+        if (!is_array($value) || !array_is_list($value)) {
+            return false;
+        }
 
-            if ($providerConfig !== []) {
-                $config = config_merge($config, $providerConfig);
+        foreach ($value as $class) {
+            if (!is_string($class) || $class === '') {
+                return false;
             }
         }
 
-        return $config;
+        return true;
     }
 }

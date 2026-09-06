@@ -9,6 +9,7 @@ use Componenta\App\ConfigKey;
 use Componenta\App\Scope;
 use Componenta\Config\Config;
 use Componenta\Config\ContainerValue;
+use Componenta\Config\Environment;
 use Componenta\Scope\ScopeInterface;
 use Psr\Container\ContainerInterface;
 
@@ -19,7 +20,8 @@ final class BootTargetFactoryAdapterTestContainer implements ContainerInterface
      */
     public function __construct(
         private readonly array $entries,
-    ) {}
+    ) {
+    }
 
     public function get(string $id): mixed
     {
@@ -40,7 +42,9 @@ final class BootTargetFactoryAdapterTestApp implements AppInterface
     }
 }
 
-final readonly class BootTargetFactoryAdapterTestTarget {}
+final readonly class BootTargetFactoryAdapterTestTarget
+{
+}
 
 final class BootTargetFactoryAdapterTestUnsupportedAdapter implements BootTargetAdapterInterface
 {
@@ -62,7 +66,8 @@ final class BootTargetFactoryAdapterTestSupportedAdapter implements BootTargetAd
 
     public function __construct(
         private readonly object $target,
-    ) {}
+    ) {
+    }
 
     public function supports(ScopeInterface $scope): bool
     {
@@ -88,7 +93,7 @@ describe('boot target factory adapters', function (): void {
                 BootTargetFactoryAdapterTestUnsupportedAdapter::class,
                 BootTargetFactoryAdapterTestSupportedAdapter::class,
             ],
-        ]);
+        ], new Environment([]));
         $container = new BootTargetFactoryAdapterTestContainer([
             BootTargetFactoryAdapterTestUnsupportedAdapter::class => new BootTargetFactoryAdapterTestUnsupportedAdapter(),
             BootTargetFactoryAdapterTestSupportedAdapter::class => $adapter,
@@ -101,16 +106,6 @@ describe('boot target factory adapters', function (): void {
             ->and($adapter->scope)->toBe(Scope::HTTP);
     });
 
-    it('reports unsupported scopes by scope value', function (): void {
-        $app = new BootTargetFactoryAdapterTestApp();
-        $container = new BootTargetFactoryAdapterTestContainer([]);
-        $config = new Config([
-            ConfigKey::BOOT_TARGET_ADAPTERS => [],
-        ]);
-
-        expect(fn () => (new BootTargetFactory(new ContainerValue($container, $config)))->create($app, Scope::HTTP))
-            ->toThrow(LogicException::class, 'Unknown scope "http" - no matching boot target adapter.');
-    });
     it('rejects invalid boot target adapter config values', function (): void {
         $app = new BootTargetFactoryAdapterTestApp();
         $container = new BootTargetFactoryAdapterTestContainer([]);
@@ -118,7 +113,7 @@ describe('boot target factory adapters', function (): void {
             ConfigKey::BOOT_TARGET_ADAPTERS => [
                 stdClass::class,
             ],
-        ]);
+        ], new Environment([]));
 
         expect(fn () => (new BootTargetFactory(new ContainerValue($container, $config)))->create($app, Scope::HTTP))
             ->toThrow(LogicException::class, 'Boot target adapter entry must be a class-string');

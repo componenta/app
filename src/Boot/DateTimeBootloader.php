@@ -6,7 +6,6 @@ namespace Componenta\App\Boot;
 
 use Componenta\App\Scope;
 use Componenta\Scope\Scopes;
-use function Componenta\Config\env;
 
 final class DateTimeBootloader implements BootloaderInterface
 {
@@ -18,7 +17,7 @@ final class DateTimeBootloader implements BootloaderInterface
 
     public function boot(BootContext $context): void
     {
-        date_default_timezone_set(env('APP_TIMEZONE', 'UTC'));
+        date_default_timezone_set($context->container->config->environment->string('APP_TIMEZONE', 'UTC'));
     }
 
 }

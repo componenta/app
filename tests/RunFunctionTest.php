@@ -34,6 +34,10 @@ function removeRunFunctionProjectRoot(string $path): void
     );
 
     foreach ($items as $item) {
+        if (!$item instanceof SplFileInfo) {
+            throw new RuntimeException('Unexpected run function test filesystem entry.');
+        }
+
         if ($item->isDir()) {
             rmdir($item->getPathname());
         } else {
@@ -61,6 +65,7 @@ use Componenta\App\Boot\BootloaderProviderInterface;
 use Componenta\App\Boot\BootTargetFactoryInterface;
 use Componenta\Config\Config;
 use Componenta\Config\ContainerValue;
+use Componenta\Config\Environment;
 use Componenta\Scope\ScopeInterface;
 use Psr\Container\ContainerInterface;
 
@@ -68,7 +73,7 @@ return new class implements ContainerInterface {
     public function get(string $id): mixed
     {
         return match ($id) {
-            Config::class => new Config([]),
+            Config::class => new Config([], new Environment([])),
             AppFactoryInterface::class => new class implements AppFactoryInterface {
                 public function createApp(ScopeInterface $scope, ContainerValue $container): AppInterface
                 {

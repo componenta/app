@@ -14,7 +14,8 @@ final readonly class BootTargetFactory implements BootTargetFactoryInterface
 {
     public function __construct(
         private ContainerValue $container,
-    ) {}
+    ) {
+    }
 
     public function create(AppInterface $app, ScopeInterface $scope): object
     {
