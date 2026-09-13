@@ -11,9 +11,6 @@ use RuntimeException;
 
 final class CacheLayout
 {
-    public const string CURRENT = 'current.json';
-    public const string GENERATIONS = 'generations';
-
     public string $buildDir {
         get => $this->paths->resolve($this->buildDirectory);
     }
@@ -24,14 +21,6 @@ final class CacheLayout
 
     public string $runtimeDir {
         get => $this->paths->resolve($this->runtimeDirectory);
-    }
-
-    public string $current {
-        get => $this->build(self::CURRENT);
-    }
-
-    public string $generations {
-        get => $this->build(self::GENERATIONS);
     }
 
     public function __construct(
@@ -83,19 +72,5 @@ final class CacheLayout
     public function runtime(string $path): string
     {
         return $this->paths->resolve($this->runtimeDirectory . '/' . ltrim($path, '/\\'));
-    }
-
-    public function generation(string $generation): string
-    {
-        if (preg_match('/^[a-f0-9]{64}$/D', $generation) !== 1) {
-            throw new RuntimeException('Discovery generation id must be a SHA-256 hash.');
-        }
-
-        return $this->generations . '/' . $generation;
-    }
-
-    public function manifest(string $generation): string
-    {
-        return $this->generation($generation) . '/manifest.json';
     }
 }

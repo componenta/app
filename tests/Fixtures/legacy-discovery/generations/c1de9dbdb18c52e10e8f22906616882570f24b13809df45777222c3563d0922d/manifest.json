@@ -1,0 +1,15 @@
+{
+    "format": "componenta.discovery",
+    "version": 1,
+    "generation": "c1de9dbdb18c52e10e8f22906616882570f24b13809df45777222c3563d0922d",
+    "sections": {
+        "classes": {
+            "file": "classes.json",
+            "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+        },
+        "providers.0": {
+            "file": "providers.0.json",
+            "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+        }
+    }
+}

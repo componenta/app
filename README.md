@@ -1,251 +1,151 @@
 # Componenta App
 
-Application runtime layer for Componenta Framework projects. It coordinates executable entry points, path resolution, project configuration, container creation, cache layout, compile support, scopes, boot targets, and bootloaders.
-
-Use this package in an application skeleton. Reusable runtime libraries should not depend on `componenta/app`; package-specific discovery, compilation, and console integration belongs in separate `*-app` packages.
+Application composition and startup for Componenta projects: configuration providers, scopes, adapters, bootloaders and application builders.
 
 ## Installation
 
-```bash
+~~~bash
 composer require componenta/app
-```
+~~~
 
-The package declares `Componenta\App\ConfigProvider` in `extra.componenta.config-providers`.
-When `componenta/composer-plugin` is installed, that provider is written to the generated provider list automatically.
+PHP 8.4 or later is required. Composer metadata exposes `Componenta\App\ConfigProvider`; `componenta/composer-plugin` adds it to the generated provider list.
 
-`Componenta\App\ConfigProvider` registers the base application services, framework bootloaders, and discovery restore/compile helpers. Application skeletons usually do not need to register `DateTimeBootloader`, `ClassDiscoveryBootloader`, `CompiledBootInvocationBootloader`, `BootMethodInvocation`, `BootInvocationCompiler`, or `CompileCache` manually.
+The provider registers `ApplicationBuildOrchestratorFactory`, the application and boot-target factories, `DateTimeBootloader`, `ClassDiscoveryBootloader`, and the `BootMethodInvocation` class listener. HTTP, CLI and WebSocket runtimes are supplied by their integration packages.
 
-## Requirements
+## Application entry point
 
-- PHP 8.4+
-- `componenta/path-resolver`
-- `componenta/config`
-- `componenta/di`
-- runtime packages selected by the application
+Each runtime has an entry file, such as `public/index.php` or `bin/console.php`:
 
-## Related Packages
-
-| Package | Why it matters here |
-|---|---|
-| `componenta/path-resolver` | Provides `PathResolver` so entry points resolve project files from the root directory. |
-| `componenta/config` | Holds the final application configuration after providers are loaded. |
-| `componenta/di` | Builds the service container and invokes factories, runners, handlers, and bootloaders. |
-| `componenta/app-http` | Registers the HTTP application, pipeline bootloader, and PSR-7 response emitting. |
-| `componenta/app-console` | Adds console scope, Symfony Console integration, and command registration. |
-| `componenta/websocket-app` | Adds WebSocket scope and bridges `componenta/websocket-server` into the app boot process. |
-| `componenta/router` + `componenta/router-app` | Provide HTTP routing and optional route discovery/cache compilation. |
-| `componenta/cqrs` + `componenta/cqrs-app` | Provide command/query execution and optional handler discovery/cache compilation. |
-
-## Application Lifecycle
-
-```mermaid
-flowchart TD
-    A["Entry file"] --> B["require vendor/autoload.php"]
-    B --> C["new PathResolver(root)"]
-    C --> D["Componenta\\App\\run(scope, paths)"]
-    D --> E["require config/container.php"]
-    E --> F["ContainerFactory::create(...) or custom container"]
-    F --> G["AppFactory creates scoped app"]
-    G --> H["BootTargetFactory adapts app"]
-    H --> I["Runner / HTTP / Console / WebSocket"]
-```
-
-Every way to run the application has its own entry file:
-
-- `public/index.php` for HTTP;
-- `bin/console.php` for CLI;
-- a dedicated WebSocket entry point for socket servers.
-
-The common entry shape is intentionally small:
-
-```php
+~~~php
 use Componenta\App\Scope;
 use Componenta\Stdlib\PathResolver;
 
 use function Componenta\App\run;
 
 $root = dirname(__DIR__);
-
 require $root . '/vendor/autoload.php';
 
-run(Scope::HTTP, new PathResolver($root));
-```
+run(Scope::CLI, new PathResolver($root));
+~~~
 
-There is no required `bootstrap/app.php` and no global project-root constant. The entry point owns the root path, creates `PathResolver`, loads Composer autoload, and passes the selected `Scope` to `Componenta\App\run()`. The function changes the working directory to the project root, loads `config/container.php`, verifies that it returns a PSR-11 container, and delegates execution to `Runner::run()`.
+`run()` changes the working directory to the project root, loads `config/container.php`, checks its PSR-11 container result, and delegates to `Runner`. The runner creates the scoped application through `AppFactory`, adapts its boot target, runs bootloaders, and starts the application.
 
-## Container Loading
+## Configuration and container
 
-`config/container.php` is the project composition root. It may call the base factory or return a custom PSR-11-compatible container.
+`config/config.php` returns a `ConfigDefinition`. Providers are processed in registration order:
 
-```php
-use Componenta\App\ContainerFactory;
-use Componenta\App\ContainerFactoryOptions;
+~~~php
+use Componenta\App\Config\ComposerPackageConfigProvider;
+use Componenta\App\Config\ConfigDefinition;
+use Componenta\App\Config\DiscoveryDefinition;
 
-return ContainerFactory::create(
-    paths: $paths,
-    options: new ContainerFactoryOptions(),
+return new ConfigDefinition(
+    providers: [
+        new ComposerPackageConfigProvider(
+            $paths->resolve('config/componenta-providers.php'),
+        ),
+    ],
+    discovery: new DiscoveryDefinition(directories: ['src']),
 );
-```
+~~~
 
-`ContainerFactory::create()` is the default implementation. It receives:
+Add application providers and file providers as required. Add `AttributeConfigProvider` for `#[AsConfig]` contributions. Omitting `discovery` disables class discovery.
 
-- `PathResolverInterface`;
-- assembled `Config`;
-- optional discovered classes;
-- `ContainerFactoryOptions` for cache behavior.
+The composition root `config/container.php` passes the two parts of the configuration to DI:
 
-The factory registers the path resolver in the container and registers the discovered class iterator only when discovery is enabled. Do not pass the concrete mutable container to code that only needs service lookup. If a class only calls `get()`/`has()`, pass `Psr\Container\ContainerInterface`. If it creates fresh objects, pass `FactoryInterface`. If it invokes callables, pass `CallableInvokerInterface`.
+~~~php
+use Componenta\App\Config\ConfigFactory;
+use Componenta\DI\ContainerFactory;
 
-## Configuration Lifecycle
+$definition = require $paths->resolve('config/config.php');
+$result = ConfigFactory::create(paths: $paths, definition: $definition);
 
-`ConfigFactory` hides environment-specific configuration assembly.
+return (new ContainerFactory())->create(
+    $result->composition->config,
+    $result->composition->dependencies,
+)->container;
+~~~
 
-Development mode:
+Runtime `Config` holds application settings; `DependencyDefinitions` holds DI registrations. The container receives the same Config instance. ConfigFactory invokes providers in both development and production.
 
-- loads the project config definition;
-- instantiates configured providers;
-- can run class discovery;
-- can reuse compile-delta caches;
-- can restore attribute-derived config.
+ConfigFactory registers `PathResolverInterface`. With discovery configured, one lazy source `ClassIteratorInterface` is passed to discovery-aware providers and registered in DI also under `ConfigKey::DISCOVERY_SOURCE`. Development and production use the same source. Builders share it through DI; their maps are loaded by the corresponding runtime service factories.
 
-Production mode:
+## Application builders
 
-- loads compiled config cache directly;
-- avoids provider instantiation;
-- avoids discovery definition creation;
-- avoids repeated filesystem scanning.
+`componenta/app-console` provides the ordinary console command:
 
-The project config definition should stay declarative: it registers config providers and optional discovery directories. Decisions about dev/prod mode, compiled config file, attribute config cache, and discovery cache are framework runtime behavior.
+~~~bash
+php bin/console.php app:build
+~~~
 
-## Cache Layout
+A builder implements `Componenta\App\Build\ApplicationBuilderInterface`:
 
-`CacheLayout` centralizes project cache paths for:
+~~~php
+namespace App\Build;
 
-- compiled config;
-- development discovery;
-- development compile deltas;
-- attribute-derived config;
-- content-addressed compiled DI factory shards;
-- route cache;
-- policy descriptors;
-- interceptor descriptors;
-- serializer cache;
-- package-specific generated artifacts.
+use Componenta\App\Build\ApplicationBuilderInterface;
 
-Applications configure cache directories. Generated filenames are framework conventions and should not become application-level options unless deployment really needs that.
-
-## Compile Support
-
-Compile features are optional. App packages contribute compilers only when their runtime package is installed and bound:
-
-| Package | Compiles |
-|---|---|
-| `componenta/app` | `#[Boot]` method invocation metadata. |
-| `componenta/router-app` | Route cache. |
-| `componenta/policy-app` | Policy descriptors. |
-| `componenta/interceptor-app` | Interceptor descriptors. |
-| `componenta/cqrs-app` | One versioned CQRS map containing handlers, listeners, known commands, and command metadata. |
-| `componenta/cycle-app` | ORM discovery and console integration. |
-
-`CompileFeatureSupport` keeps optional compilers disabled when the related package binding is missing. The application does not pay compilation cost for packages it does not use.
-
-## AppFactory And Scopes
-
-`AppFactory` resolves the application registered for the requested `Scope`.
-Runtime integration packages contribute a direct map through
-`ConfigKey::APP_BY_SCOPE`:
-
-- `Scope::HTTP->value => Componenta\App\Server\App::class`;
-- `Scope::CLI->value => Componenta\App\Console\App::class`;
-- WebSocket and server packages register their own application classes.
-
-The base package owns `AppFactory`, `AppInterface`, and the scope model.
-It does not define an application adapter contract. The selected service must
-implement `AppInterface`; `AppFactory` validates this before resolving it
-from the container.
-
-## Boot Targets
-
-Runners use adapters around the concrete application object:
-
-- `HttpBootTargetInterface`;
-- `ConsoleBootTargetInterface`;
-- `WebSocketBootTargetInterface`.
-
-The adapter exposes only the method the runner needs. This keeps framework runners independent from a specific application class without introducing a broad shared target interface that leaks unrelated methods across runtimes.
-
-## Bootloaders
-
-Bootloaders are small startup units executed before the target runs. They receive `BootContext`, not a concrete application object. `BootContext` carries `ContainerValue`, the active scope, and the scope-specific boot target; the merged config is available as `$context->container->config`.
-
-The base package ships framework-level bootloaders for:
-
-- date/time setup;
-- class discovery restore/build;
-- production execution of compiled `#[Boot]` method invocations.
-
-The package provider adds `DateTimeBootloader`, `ClassDiscoveryBootloader`, and `CompiledBootInvocationBootloader` to `ConfigKey::BOOTLOADERS`. It also registers `BootMethodInvocation` as a development-only `class-finder` listener, so classes with boot methods can participate in the application startup flow when discovery is enabled.
-
-HTTP, console, and WebSocket bootloaders live in their integration packages.
-
-If a bootloader needs application-specific behavior, put that behavior behind a small service interface and resolve that service from the container.
-
-## Boot Methods
-
-`#[Boot]` marks a public method that should run during application startup. This is useful for small package or application warmup tasks that belong to a class already discovered by the framework.
-
-```php
-namespace App;
-
-use Componenta\App\Boot\Boot;
-use Componenta\DI\Attribute\Config;
-use Componenta\DI\Attribute\EntryId;
-
-final class Welcome
+final class SearchIndexBuilder implements ApplicationBuilderInterface
 {
-    #[Boot(
-        priority: 10,
-        params: [
-            'service' => new EntryId(AppWarmup::class),
-            'name' => new Config('app.name', default: 'Componenta'),
-        ],
-    )]
-    public static function boot(AppWarmup $service, string $name): void
+    public function __construct(private SearchIndexWriter $writer)
     {
-        $service->prepare($name);
+    }
+
+    public function build(): void
+    {
+        $this->writer->rebuild();
     }
 }
-```
+~~~
 
-Boot parameters support plain values and the same explicit metadata objects used by DI parameters:
+`SearchIndexWriter` is an application service responsible for the index format and publication. Construction prepares dependencies; `build()` performs the work.
 
-- `EntryId` resolves a service from the container;
-- `Config` reads from `Componenta\Config\Config`;
-- `Env` reads from `Config::$environment`.
+A package or application ConfigProvider registers service IDs:
 
-In development, `ClassDiscoveryBootloader` scans classes and `BootMethodInvocation` collects `#[Boot]` methods. When discovery finalizes, `BootInvocationRunner` executes them by descending priority.
+~~~php
+namespace App;
 
-During `app:build`, `BootInvocationCompiler` serializes the finalized invocation list into `ConfigKey::BOOT_INVOCATIONS`. During `app:build`, development-only listener registrations are removed from the production config. If no runtime listener remains, the discovery class snapshot is omitted as well. `ClassDiscoveryBootloader` never falls back to a class/filesystem scan in production, while `CompiledBootInvocationBootloader` executes only the compiled list. This avoids reflection scans and prevents the same boot method from running twice.
+use App\Build\SearchIndexBuilder;
+use Componenta\App\ConfigKey as AppConfigKey;
+use Componenta\Config\ConfigProvider as BaseConfigProvider;
 
-`BootInvocationCompiler` does not scan classes or call `finalize()` itself. The common `DiscoveryCompiler` checks before compilation that a finalizable listener supports `FinalizationStateInterface` and is already finalized. The build therefore uses the same discovery lifecycle result prepared by the class-discovery bootloader, without reading private listener state through reflection.
+final class ConfigProvider extends BaseConfigProvider
+{
+    protected function getConfig(): array
+    {
+        return [
+            AppConfigKey::BUILDERS => [SearchIndexBuilder::class],
+        ];
+    }
+}
+~~~
 
-## Discovery Compile Cache
+DI autowiring can create the builder. Register a factory with `getFactories()` when dependencies require explicit configuration, such as a metadata source or a path resolved through `PathResolverInterface`.
 
-`componenta/app` registers `CompileCache` as a container factory. The factory derives `devCompile` and `devDiscovery` paths from `CacheLayout::fromConfig()`, so `CACHE_DEV_DIR` / `AppConfigKey::CACHE_DEV_DIR` changes are reflected consistently. `ConfigFactory` may read compile-delta caches while building configuration, but the container service itself is owned by this package provider.
+`ApplicationBuildOrchestratorFactory` validates the entire ordered list: it must contain unique, non-empty string service IDs. It resolves every service and checks `ApplicationBuilderInterface` before any builder runs. An absent or empty list completes successfully.
 
-The compiled discovery payload stores one deduplicated class table. Filtered listeners reference class indices through non-empty `targets`; listeners that intentionally matched nothing are grouped in `empty_targets`, so they cannot fall back to receiving every class. Empty `classes`, `targets`, and `empty_targets` sections are omitted. `ListenerRestorer` also accepts the previous `targets[listener] => []` shape long enough to rebuild an old development cache, while production artifacts are regenerated by `app:build`.
+`ApplicationBuildOrchestrator::build()` calls builders in order. Each builder owns its artifact format, directories and atomic writes. An exception propagates unchanged and stops subsequent builders; completed effects remain. Builders work independently and receive shared source data through dependencies.
 
-## Runtime Integrations
+BuildCommand receives a closure that resolves the orchestrator from the existing container. It calls that closure only in `execute()`. Thus `list` and `--help` leave builders unconstructed; ordinary application bootstrap still runs. The command is available in development and production, including before artifacts exist. Runtime services can use artifacts or fall back to source data; rebuilding is explicit.
 
-The base package does not contain HTTP, console, or WebSocket runtime implementations:
+## Bootloaders and discovery
 
-- `componenta/app-http` creates the HTTP application, loads `config/pipeline.php`, and emits PSR-7 responses;
-- `componenta/app-console` creates the Symfony Console application and exposes `ConsoleCommandRegistryInterface`;
-- `componenta/websocket-app` creates the WebSocket application scope and loads `config/websocket.php`;
-- `componenta/websocket-server` contains the socket server, protocol, connection, and application contracts.
+`ConfigKey::BOOTLOADERS` registers bootloader services. `BootloaderInterface::boot()` receives `BootContext` with the current scope, boot target and `ContainerValue`. The base `Bootloader` supports an injectable `__invoke()` method.
 
-Package-specific CLI commands, HTTP middleware, route discovery, and WebSocket applications should be registered by their focused integration packages.
+`ClassDiscoveryBootloader` passes the runtime class iterator to `ClassListenerNotifier`. Listener processing uses the source selected by ConfigFactory.
 
-## Design Boundaries
+`#[Boot]` marks public startup methods. `BootMethodInvocation` collects them and, when finalized, passes them to `BootInvocationRunner` for execution by descending priority. Explicit boot parameters can contain plain values or DI metadata: `EntryId` for a service, `Config` for a setting, and `Env` for an environment value.
 
-`componenta/app` is application glue. It may know about entry points, project cache layout, compilation orchestration, and concrete application startup. Runtime libraries should stay usable without application bootstrapping, filesystem discovery, or console registration.
+## Cache paths
+
+`CacheLayout` exposes build, development and runtime directories. Bootstrap uses `ConfigKey::DEFAULT_CACHE_BUILD_DIR` for build artifacts; `CacheLayout::fromConfig()` reads `ConfigKey::CACHE_DEV_DIR` and `ConfigKey::CACHE_RUNTIME_DIR` for the other roots. Concrete builders receive their artifact paths through their factories.
+
+## Runtime integrations
+
+- `componenta/app-console` supplies Symfony Console and its command registry.
+- `componenta/app-http` supplies the HTTP application.
+- `componenta/websocket-app` supplies the WebSocket application scope.
+- `componenta/cqrs-app` supplies CQRS discovery, runtime maps and its builder.
+- `componenta/interceptor-app` supplies interceptor metadata discovery and its builder.
+
+Reusable runtime libraries can be used independently; their app packages connect configuration, discovery, builders and startup.

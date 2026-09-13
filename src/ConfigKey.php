@@ -24,6 +24,9 @@ class ConfigKey extends \Componenta\Config\ConfigKey
     /** Ordered list of independent application builder service IDs. */
     public const string BUILDERS = 'app.builders';
 
+    /** Shared lazy source class iterator for runtime services and builders. */
+    public const string DISCOVERY_SOURCE = 'app.discovery.source';
+
     /**
      * Legacy scope map consumed as a fallback while runtime integration
      * packages migrate to APP_ADAPTERS.
@@ -52,24 +55,10 @@ class ConfigKey extends \Componenta\Config\ConfigKey
     public const string BOOT_TARGET_ADAPTERS = 'boot.target_adapters';
 
     /**
-     * Transition-only key emitted by integration packages that have not yet
-     * migrated their old compile contributor to StaticDiscoveryExtractorInterface.
-     * The App 4 build/runtime deliberately ignores it.
-     */
-    public const string COMPILE_CACHE_CONTRIBUTORS = 'compile.cache_contributors';
-
-    /**
-     * Transition-only key emitted by integration packages that still publish
-     * removed DI AOT roots. The runtime deliberately ignores it.
-     */
-    public const string AUTOWIRE_ENTRY_CONTRIBUTORS = 'compile.autowire_entry_contributors';
-
-    /**
      * Cache directory paths (relative to PathResolverInterface::baseDir or absolute).
      *
-     * Build cache is intentionally not configurable through application config:
-     * the production config cache must be found before application config exists.
-     * Dev/runtime caches are read after config load, so they can be relocated here.
+     * Each builder factory selects its own artifact path.
+     * The defaults below are also used by the cache clearing command.
      */
     public const string CACHE_DEV_DIR = 'cache.dev_dir';
     public const string CACHE_RUNTIME_DIR = 'cache.runtime_dir';

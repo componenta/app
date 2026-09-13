@@ -13,17 +13,12 @@ function cacheLayoutPaths(): PathResolver
     return new PathResolver(str_replace('\\', '/', sys_get_temp_dir()));
 }
 
-it('exposes only application artifact generations plus development and runtime cache roots', function (): void {
+it('resolves application build, development and runtime cache paths', function (): void {
     $paths = cacheLayoutPaths();
     $cache = CacheLayout::bootstrap($paths);
     $root = $paths->baseDir;
-    $generation = str_repeat('a', 64);
 
     expect($cache->buildDir)->toBe($root . '/var/cache/build')
-        ->and($cache->current)->toBe($root . '/var/cache/build/current.json')
-        ->and($cache->generations)->toBe($root . '/var/cache/build/generations')
-        ->and($cache->generation($generation))->toBe($root . '/var/cache/build/generations/' . $generation)
-        ->and($cache->manifest($generation))->toBe($root . '/var/cache/build/generations/' . $generation . '/manifest.json')
         ->and($cache->devDir)->toBe($root . '/var/cache/dev')
         ->and($cache->runtimeDir)->toBe($root . '/var/cache/runtime');
 });
@@ -44,13 +39,11 @@ it('allows only development and runtime cache roots to come from runtime Config'
         ->and($cache->runtimeDir)->toBe($root . '/runtime/cache/live');
 });
 
-it('rejects invalid cache roots and generation ids', function (): void {
+it('rejects empty cache roots', function (): void {
     expect(fn () => new CacheLayout(
         paths: cacheLayoutPaths(),
         buildDirectory: '',
         devDirectory: 'var/cache/dev',
         runtimeDirectory: 'var/cache/runtime',
-    ))->toThrow(RuntimeException::class, 'Cache directory path cannot be empty.')
-        ->and(fn () => CacheLayout::bootstrap(cacheLayoutPaths())->generation('../escape'))
-        ->toThrow(RuntimeException::class, 'SHA-256');
+    ))->toThrow(RuntimeException::class, 'Cache directory path cannot be empty.');
 });

@@ -2,13 +2,10 @@
 
 declare(strict_types=1);
 
-use Componenta\App\Build\ApplicationBuilder;
-use Componenta\App\Config\AttributeConfigProvider;
 use Componenta\App\Config\ComposerPackageConfigProvider;
 use Componenta\App\Config\ConfigDefinition;
 use Componenta\App\Config\ConfigFactory;
 use Componenta\App\Config\DiscoveryDefinition;
-use Componenta\App\Discovery\StaticDiscoveryExtractorInterface;
 use Componenta\ClassFinder\ClassIteratorInterface;
 use Componenta\Config\ConfigKey;
 use Componenta\Config\Environment;
@@ -40,36 +37,6 @@ final class AppConfigFactoryArtifactProvider
             ],
         ];
     }
-}
-
-final class AppConfigFactorySemanticExtractor implements StaticDiscoveryExtractorInterface
-{
-    public int $calls = 0;
-
-    public function key(): string
-    {
-        return 'test-map';
-    }
-
-    public function extract(ClassIteratorInterface $classes): array
-    {
-        $this->calls++;
-        $names = [];
-
-        foreach ($classes->toArray() as $class) {
-            if (!$class instanceof ClassInfo) {
-                throw new RuntimeException('Static discovery must expose ClassInfo instances.');
-            }
-
-            $names[] = $class->fullyQualifiedName;
-        }
-
-        return ['semantic.map' => $names];
-    }
-}
-
-final class AppConfigFactorySemanticOnceExample
-{
 }
 
 function appConfigFactoryRoot(string $suffix): string
@@ -168,235 +135,96 @@ it('creates the same Config composition in development and production and invoke
     }
 });
 
-it('builds data-only artifacts without invoking config providers and production materializes them at runtime', function (): void {
-    $root = appConfigFactoryRoot('artifact');
-    file_put_contents($root . '/src/Example.php', "<?php\n\ndeclare(strict_types=1);\n\nfinal class BuiltDiscoveryExample {}\n");
-    $providersFile = $root . '/providers.php';
-    file_put_contents($providersFile, '<?php return [' . var_export(AppConfigFactoryArtifactProvider::class, true) . '];');
-    $runtimeCalls = 0;
-    $definition = appConfigDefinition([
-        new ComposerPackageConfigProvider($providersFile),
-        static function () use (&$runtimeCalls): array {
-            $runtimeCalls++;
-
-            return ['provider_order' => ['application']];
-        },
-    ]);
-    $paths = new PathResolver($root);
-    AppConfigFactoryArtifactProvider::$calls = 0;
-    AppConfigFactoryArtifactProvider::$constructions = 0;
-
+it('shares the source iterator with ordinary discovery through DI', function (): void {
+    $root = appConfigFactoryRoot('source');
     try {
-        $build = (new ApplicationBuilder())->build($paths, $definition);
+        file_put_contents($root . '/src/One.php', '<?php class SharedSourceOne {}');
+        $result = ConfigFactory::create(new PathResolver($root), appConfigDefinition([]), new Environment([]));
+        $container = (new \Componenta\DI\ContainerFactory())->create($result->config, $result->dependencies);
+        $source = $container->get('app.discovery.source');
+        expect($source)->toBe($result->discovered);
+        expect(array_map(static fn (ClassInfo $info): string => $info->fullyQualifiedName, $source->toArray()))
+            ->toBe(['SharedSourceOne']);
+    } finally {
+        removeAppConfigFactoryRoot($root);
+    }
+});
 
-        expect(AppConfigFactoryArtifactProvider::$constructions)->toBe(0)
-            ->and(AppConfigFactoryArtifactProvider::$calls)->toBe(0)
-            ->and($runtimeCalls)->toBe(0)
-            ->and($build->directory)->toBeDirectory()
-            ->and($build->manifest)->toBeFile();
+it('uses current discovery and Composer providers even when an old generation remains', function (): void {
+    $root = appConfigFactoryRoot('legacy_generation');
+    $fixture = dirname(__DIR__) . '/Fixtures/legacy-discovery';
+    try {
+        foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($fixture, FilesystemIterator::SKIP_DOTS)) as $file) {
+            $relative = substr($file->getPathname(), strlen($fixture) + 1);
+            $target = $root . '/var/cache/build/' . $relative;
+            if (!is_dir(dirname($target))) {
+                mkdir(dirname($target), 0o755, true);
+            }
+            copy($file->getPathname(), $target);
+        }
+        file_put_contents($root . '/src/Current.php', '<?php final class CurrentDiscoveryClass {}');
+        $providersFile = $root . '/providers.php';
+        file_put_contents($providersFile, '<?php return [' . var_export(AppConfigFactoryArtifactProvider::class, true) . '];');
+        $definition = appConfigDefinition([new ComposerPackageConfigProvider($providersFile)]);
+        foreach (['development', 'production'] as $mode) {
+            $result = ConfigFactory::create(new PathResolver($root), $definition, new Environment(['APP_ENV' => $mode]));
+            expect(array_map(static fn (ClassInfo $info): string => $info->fullyQualifiedName, $result->discovered->toArray()))
+                ->toBe(['CurrentDiscoveryClass'])
+                ->and($result->config->get('provider_order'))->toBe(['package']);
+        }
+    } finally {
+        removeAppConfigFactoryRoot($root);
+    }
+});
 
-        unlink($providersFile);
-        unlink($root . '/src/Example.php');
-
+it('materializes every current package provider occurrence in registration order', function (): void {
+    $root = appConfigFactoryRoot('package_providers');
+    try {
+        $file = $root . '/providers.php';
+        file_put_contents($file, '<?php return [' . var_export(AppConfigFactoryArtifactProvider::class, true)
+            . ', ' . var_export(AppConfigFactoryArtifactProvider::class, true) . '];');
+        AppConfigFactoryArtifactProvider::$calls = 0;
         $result = ConfigFactory::create(
-            paths: $paths,
-            definition: $definition,
-            environment: new Environment(['APP_ENV' => 'production']),
+            new PathResolver($root),
+            appConfigDefinition([
+                new ComposerPackageConfigProvider($file),
+                static fn (): array => ['provider_order' => ['application']],
+            ]),
+            new Environment(['APP_ENV' => 'production']),
         );
 
-        expect(AppConfigFactoryArtifactProvider::$constructions)->toBe(1)
-            ->and(AppConfigFactoryArtifactProvider::$calls)->toBe(1)
-            ->and($runtimeCalls)->toBe(1)
-            ->and($result->config->get('provider_order'))->toBe(['package', 'application'])
-            ->and($result->discovered)->toHaveCount(1)
-            ->and($result->diagnostics)->toBe([]);
-
-        $services = $result->dependencies->sections[ConfigKey::SERVICES] ?? null;
-        if (!is_array($services)) {
-            throw new RuntimeException('ConfigFactory must expose a services dependency section.');
-        }
-
-        $runtimeClosure = $services['runtime.closure'] ?? null;
-        expect($runtimeClosure)->toBeInstanceOf(Closure::class);
-        if (!$runtimeClosure instanceof Closure) {
-            throw new RuntimeException('Runtime service definition must remain a closure.');
-        }
-
+        expect(AppConfigFactoryArtifactProvider::$calls)->toBe(2)
+            ->and($result->config->get('provider_order'))->toBe(['package', 'package', 'application']);
+        $runtimeClosure = $result->dependencies->sections[ConfigKey::SERVICES]['runtime.closure'];
         expect($runtimeClosure())->toBe('alive');
     } finally {
         removeAppConfigFactoryRoot($root);
     }
 });
 
-it('preserves repeated package provider occurrences and falls back before provider materialization', function (): void {
-    $root = appConfigFactoryRoot('providers-fallback');
-    file_put_contents($root . '/src/Example.php', "<?php\n\ndeclare(strict_types=1);\n\nfinal class ProviderFallbackExample {}\n");
-    $providersFile = $root . '/providers.php';
-    file_put_contents(
-        $providersFile,
-        '<?php return ['
-        . var_export(AppConfigFactoryArtifactProvider::class, true)
-        . ', '
-        . var_export(AppConfigFactoryArtifactProvider::class, true)
-        . '];',
-    );
-    $paths = new PathResolver($root);
-    $definition = appConfigDefinition([new ComposerPackageConfigProvider($providersFile)]);
-    AppConfigFactoryArtifactProvider::$constructions = 0;
-    AppConfigFactoryArtifactProvider::$calls = 0;
-
+it('shares current source with discovery-aware providers in both environments', function (): void {
+    $root = appConfigFactoryRoot('discovery_provider');
     try {
-        $build = (new ApplicationBuilder())->build($paths, $definition);
-        file_put_contents($build->directory . '/providers.0.json', '{corrupt');
-
-        $result = ConfigFactory::create(
-            paths: $paths,
-            definition: $definition,
-            environment: new Environment(['APP_ENV' => 'production']),
-        );
-
-        expect(AppConfigFactoryArtifactProvider::$constructions)->toBe(2)
-            ->and(AppConfigFactoryArtifactProvider::$calls)->toBe(2)
-            ->and($result->config->get('provider_order'))->toBe(['package', 'package'])
-            ->and($result->diagnostics)->toHaveCount(1)
-            ->and($result->diagnostics[0])->toContain('providers.0');
-    } finally {
-        removeAppConfigFactoryRoot($root);
-    }
-});
-
-it('publishes immutable content-addressed generations', function (): void {
-    $root = appConfigFactoryRoot('immutable');
-    $source = $root . '/src/Example.php';
-    file_put_contents($source, "<?php\n\ndeclare(strict_types=1);\n\nfinal class ImmutableGenerationOne {}\n");
-    $paths = new PathResolver($root);
-    $definition = appConfigDefinition([static fn (): array => []]);
-
-    try {
-        $first = (new ApplicationBuilder())->build($paths, $definition);
-        $same = (new ApplicationBuilder())->build($paths, $definition);
-        expect($same->generation)->toBe($first->generation)
-            ->and($same->directory)->toBe($first->directory);
-
-        file_put_contents($source, "<?php\n\ndeclare(strict_types=1);\n\nfinal class ImmutableGenerationTwo {}\n");
-        $second = (new ApplicationBuilder())->build($paths, $definition);
-
-        expect($second->generation)->not->toBe($first->generation)
-            ->and($first->directory)->toBeDirectory()
-            ->and($second->directory)->toBeDirectory();
-
-        $manifest = file_get_contents($root . '/var/cache/build/current.json');
-        if (!is_string($manifest)) {
-            throw new RuntimeException('Failed to read the current build manifest.');
+        file_put_contents($root . '/src/Current.php', '<?php final class ProviderSourceClass {}');
+        $provider = new class implements \Componenta\App\Config\DiscoveryAwareConfigProviderInterface {
+            public ?ClassIteratorInterface $discovered = null;
+            public function withDiscovered(?ClassIteratorInterface $discovered): static {
+                $copy = clone $this;
+                $copy->discovered = $discovered;
+                return $copy;
+            }
+            public function __invoke(): array {
+                return ['provider.source' => $this->discovered];
+            }
+        };
+        foreach (['development', 'production'] as $mode) {
+            $result = ConfigFactory::create(new PathResolver($root), appConfigDefinition([$provider]), new Environment(['APP_ENV' => $mode]));
+            $container = (new \Componenta\DI\ContainerFactory())->create($result->config, $result->dependencies);
+            expect($result->config->get('provider.source'))->toBe($result->discovered)
+                ->and($container->get(\Componenta\App\ConfigKey::DISCOVERY_SOURCE))->toBe($result->discovered)
+                ->and($container->get(ClassIteratorInterface::class))->toBe($result->discovered)
+                ->and($result->discovered->toArray()[0]->fullyQualifiedName)->toBe('ProviderSourceClass');
         }
-
-        $current = json_decode($manifest, true, flags: JSON_THROW_ON_ERROR);
-        if (!is_array($current)) {
-            throw new RuntimeException('The current build manifest must decode to an array.');
-        }
-
-        expect($current['generation'])->toBe($second->generation);
-    } finally {
-        removeAppConfigFactoryRoot($root);
-    }
-});
-
-it('verifies an artifact section before materialization and falls back to source discovery when it is corrupt', function (): void {
-    $root = appConfigFactoryRoot('fallback');
-    file_put_contents($root . '/src/Example.php', "<?php\n\ndeclare(strict_types=1);\n\nfinal class CorruptArtifactFallbackExample {}\n");
-    $paths = new PathResolver($root);
-    $definition = appConfigDefinition([static fn (): array => ['source' => true]]);
-
-    try {
-        $build = (new ApplicationBuilder())->build($paths, $definition);
-        file_put_contents($build->directory . '/classes.json', '{corrupt');
-
-        $result = ConfigFactory::create(
-            paths: $paths,
-            definition: $definition,
-            environment: new Environment(['APP_ENV' => 'production']),
-        );
-
-        expect($result->discovered)->toHaveCount(1)
-            ->and($result->config->get('source'))->toBeTrue()
-            ->and($result->diagnostics)->toHaveCount(1)
-            ->and($result->diagnostics[0])->toContain('classes');
-    } finally {
-        removeAppConfigFactoryRoot($root);
-    }
-});
-
-it('verifies and falls back each package semantic extractor independently', function (): void {
-    $root = appConfigFactoryRoot('semantic');
-    file_put_contents($root . '/src/Example.php', "<?php\n\ndeclare(strict_types=1);\n\nfinal class SemanticExtractorExample {}\n");
-    $paths = new PathResolver($root);
-    $extractor = new AppConfigFactorySemanticExtractor();
-    $definition = new ConfigDefinition(
-        providers: [static fn (): array => []],
-        discovery: new DiscoveryDefinition(
-            directories: ['src'],
-            extractors: [$extractor],
-        ),
-    );
-
-    try {
-        $build = (new ApplicationBuilder())->build($paths, $definition);
-        expect($extractor->calls)->toBe(1);
-
-        $fromArtifact = ConfigFactory::create(
-            paths: $paths,
-            definition: $definition,
-            environment: new Environment(['APP_ENV' => 'production']),
-        );
-
-        expect($extractor->calls)->toBe(1)
-            ->and($fromArtifact->config->get('semantic.map'))->toBe(['SemanticExtractorExample'])
-            ->and($fromArtifact->diagnostics)->toBe([]);
-
-        file_put_contents($build->directory . '/semantic.test-map.json', '{corrupt');
-        $fromSource = ConfigFactory::create(
-            paths: $paths,
-            definition: $definition,
-            environment: new Environment(['APP_ENV' => 'production']),
-        );
-
-        expect($extractor->calls)->toBe(2)
-            ->and($fromSource->config->get('semantic.map'))->toBe(['SemanticExtractorExample'])
-            ->and($fromSource->diagnostics)->toHaveCount(1)
-            ->and($fromSource->diagnostics[0])->toContain('semantic.test-map');
-    } finally {
-        removeAppConfigFactoryRoot($root);
-    }
-});
-
-it('applies each semantic extractor contribution once when attribute provider occurs more than once', function (): void {
-    $root = appConfigFactoryRoot('semantic-once');
-    file_put_contents(
-        $root . '/src/Example.php',
-        "<?php\n\ndeclare(strict_types=1);\n\nfinal class AppConfigFactorySemanticOnceExample {}\n",
-    );
-    $paths = new PathResolver($root);
-    $extractor = new AppConfigFactorySemanticExtractor();
-    $definition = new ConfigDefinition(
-        providers: [
-            new AttributeConfigProvider(),
-            new AttributeConfigProvider(),
-        ],
-        discovery: new DiscoveryDefinition(
-            directories: ['src'],
-            extractors: [$extractor],
-        ),
-    );
-
-    try {
-        $result = ConfigFactory::create(
-            paths: $paths,
-            definition: $definition,
-            environment: new Environment(['APP_ENV' => 'development']),
-        );
-
-        expect($extractor->calls)->toBe(1)
-            ->and($result->config->get('semantic.map'))->toBe([AppConfigFactorySemanticOnceExample::class]);
     } finally {
         removeAppConfigFactoryRoot($root);
     }

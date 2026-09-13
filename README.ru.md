@@ -1,251 +1,151 @@
 # Componenta App
 
-Прикладной слой времени выполнения для проектов на Componenta Framework. Пакет координирует точки входа, разрешение путей, проектную конфигурацию, создание контейнера, структуру кеша, компиляцию, области запуска, адаптеры запуска и стартовые загрузчики.
-
-Используйте этот пакет в скелете приложения. Переиспользуемые runtime-библиотеки не должны зависеть от `componenta/app`; интеграция конкретного пакета с обнаружением классов, компиляцией, HTTP, консолью или WebSocket должна находиться в отдельном focused app-пакете.
-
-## Граница пакета
-
-`componenta/app` содержит базовую модель приложения: конфигурацию, контейнер, области запуска, boot target adapters, bootloaders и compile support. Он не содержит конкретную HTTP, CLI или WebSocket реализацию.
-
-Конкретные runtime-интеграции подключаются отдельными пакетами:
-
-- `componenta/app-http` создает HTTP-приложение, загружает `config/pipeline.php` и эмитит PSR-7 ответы;
-- `componenta/app-console` создает Symfony Console приложение и предоставляет `ConsoleCommandRegistryInterface`;
-- `componenta/websocket-app` создает WebSocket-область запуска и загружает `config/websocket.php`;
-- `componenta/websocket-server` содержит socket server, protocol, connection и application contracts.
+Подготовка конфигурации и запуск Componenta-приложений: провайдеры, области запуска, адаптеры, загрузчики и билдеры.
 
 ## Установка
 
-```bash
+~~~bash
 composer require componenta/app
-```
+~~~
 
-Пакет объявляет `Componenta\App\ConfigProvider` в `extra.componenta.config-providers`.
-Если установлен `componenta/composer-plugin`, этот провайдер автоматически попадает в сгенерированный список провайдеров.
+Требуется PHP 8.4 или новее. Пакет объявляет `Componenta\App\ConfigProvider` в метаданных Composer; `componenta/composer-plugin` добавляет его в сгенерированный список провайдеров.
 
-`Componenta\App\ConfigProvider` регистрирует базовые сервисы приложения, framework bootloaders и вспомогательные сервисы восстановления/компиляции discovery. Скелетам приложения обычно не нужно вручную регистрировать `DateTimeBootloader`, `ClassDiscoveryBootloader`, `CompiledBootInvocationBootloader`, `BootMethodInvocation`, `BootInvocationCompiler` или `CompileCache`.
+Провайдер регистрирует `ApplicationBuildOrchestratorFactory`, фабрики приложения и целевого объекта загрузки, `DateTimeBootloader`, `ClassDiscoveryBootloader` и слушатель классов `BootMethodInvocation`. Конкретные HTTP, CLI и WebSocket реализации подключаются через пакеты интеграции.
 
-## Требования
+## Точка входа
 
-- PHP 8.4+
-- `componenta/path-resolver`
-- `componenta/config`
-- `componenta/di`
-- runtime-пакеты, выбранные приложением
+У каждой области запуска свой файл, например `public/index.php` или `bin/console.php`:
 
-## Связанные пакеты
-
-| Пакет | Зачем нужен здесь |
-|---|---|
-| `componenta/path-resolver` | Дает `PathResolver`, чтобы точки входа разрешали `config/container.php`, кеши и другие файлы относительно корня проекта. |
-| `componenta/config` | Хранит итоговую конфигурацию приложения после загрузки провайдеров. |
-| `componenta/di` | Создает контейнер сервисов и вызывает фабрики, runners, handlers и bootloaders. |
-| `componenta/app-http` | Регистрирует HTTP-приложение, загрузчик конвейера и эмиттер PSR-7 ответов. |
-| `componenta/app-console` | Добавляет консольную область запуска, интеграцию Symfony Console и регистрацию команд. |
-| `componenta/websocket-app` | Добавляет WebSocket-область запуска и связывает `componenta/websocket-server` с boot process приложения. |
-| `componenta/router` + `componenta/router-app` | Дают HTTP routing и необязательную компиляцию кеша маршрутов. |
-| `componenta/cqrs` + `componenta/cqrs-app` | Дают выполнение команд и запросов, а также необязательное обнаружение и компиляцию карт обработчиков. |
-
-## Жизненный цикл приложения
-
-```mermaid
-flowchart TD
-    A["Файл точки входа"] --> B["require vendor/autoload.php"]
-    B --> C["new PathResolver(root)"]
-    C --> D["Componenta\\App\\run(scope, paths)"]
-    D --> E["require config/container.php"]
-    E --> F["ContainerFactory::create(...) или свой контейнер"]
-    F --> G["AppFactory создает приложение нужной области запуска"]
-    G --> H["BootTargetFactory адаптирует приложение"]
-    H --> I["Runner / HTTP / Console / WebSocket"]
-```
-
-У каждого способа запуска приложения есть свой файл точки входа:
-
-- `public/index.php` для HTTP;
-- `bin/console.php` для CLI;
-- отдельный файл для WebSocket-сервера.
-
-Общая форма точки входа намеренно маленькая:
-
-```php
+~~~php
 use Componenta\App\Scope;
 use Componenta\Stdlib\PathResolver;
 
 use function Componenta\App\run;
 
 $root = dirname(__DIR__);
-
 require $root . '/vendor/autoload.php';
 
-run(Scope::HTTP, new PathResolver($root));
-```
+run(Scope::CLI, new PathResolver($root));
+~~~
 
-Обязательного `bootstrap/app.php` нет. Глобальная константа корня проекта не нужна. Точка входа владеет корневым путем, создает `PathResolver`, подключает Composer autoload и передает выбранный `Scope` в `Componenta\App\run()`. Функция меняет рабочую директорию на корень проекта, загружает `config/container.php`, проверяет, что он вернул PSR-11 контейнер, и делегирует выполнение в `Runner::run()`.
+`run()` меняет рабочий каталог на корень проекта, загружает `config/container.php`, проверяет возвращённый PSR-11 контейнер и передаёт запуск в `Runner`. Runner создаёт приложение нужной области через `AppFactory`, подготавливает целевой объект загрузки, выполняет загрузчики и запускает приложение.
 
-## Загрузка контейнера
+## Конфигурация и контейнер
 
-`config/container.php` является composition root проекта. Он может вызвать базовую фабрику или вернуть собственный PSR-11-совместимый контейнер.
+`config/config.php` возвращает `ConfigDefinition`. Провайдеры обрабатываются в порядке регистрации:
 
-```php
-use Componenta\App\ContainerFactory;
-use Componenta\App\ContainerFactoryOptions;
+~~~php
+use Componenta\App\Config\ComposerPackageConfigProvider;
+use Componenta\App\Config\ConfigDefinition;
+use Componenta\App\Config\DiscoveryDefinition;
 
-return ContainerFactory::create(
-    paths: $paths,
-    options: new ContainerFactoryOptions(),
+return new ConfigDefinition(
+    providers: [
+        new ComposerPackageConfigProvider(
+            $paths->resolve('config/componenta-providers.php'),
+        ),
+    ],
+    discovery: new DiscoveryDefinition(directories: ['src']),
 );
-```
+~~~
 
-`ContainerFactory::create()` принимает:
+В список добавляются необходимые провайдеры приложения и файлов. Для конфигурации через `#[AsConfig]` подключается `AttributeConfigProvider`. Если `discovery` опущен, обнаружение классов отключено.
 
-- `PathResolverInterface`;
-- собранный `Config`;
-- необязательный итератор найденных классов;
-- `ContainerFactoryOptions` для поведения кеша.
+В `config/container.php` две части результата подготовки конфигурации передаются в DI:
 
-Фабрика регистрирует resolver путей в контейнере и добавляет итератор найденных классов только когда обнаружение включено.
+~~~php
+use Componenta\App\Config\ConfigFactory;
+use Componenta\DI\ContainerFactory;
 
-## Конфигурация
+$definition = require $paths->resolve('config/config.php');
+$result = ConfigFactory::create(paths: $paths, definition: $definition);
 
-`ConfigFactory` скрывает сборку конфигурации для разных окружений.
+return (new ContainerFactory())->create(
+    $result->composition->config,
+    $result->composition->dependencies,
+)->container;
+~~~
 
-Режим разработки:
+Runtime `Config` содержит настройки приложения, а `DependencyDefinitions` — регистрации DI. Контейнер получает тот же экземпляр Config. ConfigFactory вызывает провайдеры и в development, и в production.
 
-- загружает проектное определение конфигурации;
-- создает настроенные провайдеры;
-- может запускать обнаружение классов;
-- может переиспользовать compile-delta caches;
-- может восстанавливать конфигурацию, полученную из атрибутов.
+ConfigFactory регистрирует `PathResolverInterface`. При настроенном discovery один ленивый исходный `ClassIteratorInterface` передаётся discovery-aware провайдерам и регистрируется в DI также под ключом `ConfigKey::DISCOVERY_SOURCE`. Development и production используют одинаковый источник. Несколько билдеров получают его через DI, а их карты загружаются фабриками соответствующих runtime-сервисов.
 
-Production mode:
+## Билдеры приложения
 
-- загружает скомпилированный config cache напрямую;
-- не создает провайдеры повторно;
-- не создает discovery definition;
-- не сканирует файловую систему повторно.
+Пакет `componenta/app-console` добавляет обычную консольную команду:
 
-Проектное определение конфигурации должно оставаться декларативным: оно регистрирует config providers и необязательные discovery directories. Выбор режима, файлов кеша и повторного использования compiled artifacts является поведением framework runtime.
+~~~bash
+php bin/console.php app:build
+~~~
 
-## Структура кеша
+Билдер реализует `Componenta\App\Build\ApplicationBuilderInterface`:
 
-`CacheLayout` централизует проектные пути кеша для:
+~~~php
+namespace App\Build;
 
-- скомпилированной конфигурации;
-- discovery в разработке;
-- compile deltas в разработке;
-- конфигурации, собранной из атрибутов;
-- content-addressed шарды скомпилированных DI-фабрик;
-- route cache;
-- описания политик;
-- описания перехватчиков;
-- serializer cache;
-- сгенерированных artifacts отдельных пакетов.
+use Componenta\App\Build\ApplicationBuilderInterface;
 
-Приложение конфигурирует директории кеша. Имена generated files являются соглашениями фреймворка и не должны становиться пользовательскими настройками без реальной причины со стороны deployment.
-
-## Компиляция
-
-Компиляция опциональна. App-пакеты добавляют compilers только когда соответствующий runtime package установлен и связан:
-
-| Пакет | Что компилирует |
-|---|---|
-| `componenta/app` | Метаданные вызовов `#[Boot]` методов. |
-| `componenta/router-app` | Route cache. |
-| `componenta/policy-app` | Описания политик. |
-| `componenta/interceptor-app` | Описания перехватчиков. |
-| `componenta/cqrs-app` | Одна версионированная CQRS map с обработчиками, слушателями, известными командами и метаданными команд. |
-| `componenta/cycle-app` | ORM discovery и console integration. |
-
-`CompileFeatureSupport` держит optional compilers выключенными, если нужная service binding отсутствует. Приложение не платит за компиляцию пакетов, которые не использует.
-
-## AppFactory и области запуска
-
-`AppFactory` получает приложение, зарегистрированное для запрошенного `Scope`.
-Пакеты интеграции среды выполнения добавляют прямое отображение через
-`ConfigKey::APP_BY_SCOPE`:
-
-- `Scope::HTTP->value => Componenta\App\Server\App::class`;
-- `Scope::CLI->value => Componenta\App\Console\App::class`;
-- пакеты WebSocket и серверных сред регистрируют собственные классы приложений.
-
-Базовый пакет содержит `AppFactory`, `AppInterface` и модель областей запуска.
-Отдельного контракта адаптера приложения больше нет. Выбранный сервис должен
-реализовывать `AppInterface`; `AppFactory` проверяет это перед получением
-сервиса из контейнера.
-
-## Boot Targets
-
-Runners используют adapters над конкретным объектом приложения:
-
-- `HttpBootTargetInterface`;
-- `ConsoleBootTargetInterface`;
-- `WebSocketBootTargetInterface`.
-
-Adapter раскрывает только метод, который нужен runner. Так framework runners не зависят от конкретного класса приложения, и при этом не появляется широкий общий интерфейс со всеми методами сразу.
-
-## Bootloaders
-
-Bootloader — небольшая единица запуска, выполняемая до основного приложения. Он получает `BootContext`, а не конкретный application object. `BootContext` содержит `ContainerValue`, текущую область запуска и целевой объект загрузки; собранная конфигурация доступна как `$context->container->config`.
-
-Базовый пакет поставляет framework-level bootloaders для:
-
-- настройки даты и времени;
-- восстановления или построения обнаружения классов;
-- выполнения скомпилированных `#[Boot]` методов в боевом окружении.
-
-HTTP, console и WebSocket bootloaders находятся в своих integration packages.
-
-Провайдер пакета добавляет `DateTimeBootloader`, `ClassDiscoveryBootloader` и `CompiledBootInvocationBootloader` в `ConfigKey::BOOTLOADERS`. Он также регистрирует `BootMethodInvocation` как слушатель `class-finder` только для разработки и сборки, чтобы классы с boot methods могли участвовать в старте приложения, когда включено discovery.
-
-Если bootloader нуждается в application-specific behavior, вынесите это поведение в небольшой service interface и получите сервис из контейнера.
-
-## Boot-методы
-
-`#[Boot]` помечает публичный метод, который нужно выполнить при старте приложения. Это удобно для небольших задач прогрева или регистрации, которые принадлежат уже обнаруживаемому классу.
-
-```php
-namespace App;
-
-use Componenta\App\Boot\Boot;
-use Componenta\DI\Attribute\Config;
-use Componenta\DI\Attribute\EntryId;
-
-final class Welcome
+final class SearchIndexBuilder implements ApplicationBuilderInterface
 {
-    #[Boot(
-        priority: 10,
-        params: [
-            'service' => new EntryId(AppWarmup::class),
-            'name' => new Config('app.name', default: 'Componenta'),
-        ],
-    )]
-    public static function boot(AppWarmup $service, string $name): void
+    public function __construct(private SearchIndexWriter $writer)
     {
-        $service->prepare($name);
+    }
+
+    public function build(): void
+    {
+        $this->writer->rebuild();
     }
 }
-```
+~~~
 
-Параметры boot-методов поддерживают обычные значения и явные DI-метаданные:
+`SearchIndexWriter` — сервис приложения, который отвечает за формат индекса и его публикацию. Конструктор подготавливает зависимости; работа выполняется в `build()`.
 
-- `EntryId` получает сервис из контейнера;
-- `Config` читает значение из `Componenta\Config\Config`;
-- `Env` читает значение из `Config::$environment`.
+ConfigProvider пакета или приложения регистрирует ID сервисов:
 
-В режиме разработки `ClassDiscoveryBootloader` сканирует классы, а `BootMethodInvocation` собирает `#[Boot]` методы. При финализации обнаружения `BootInvocationRunner` выполняет их по убыванию `priority`.
+~~~php
+namespace App;
 
-Во время `app:build` `BootInvocationCompiler` сериализует финализированный список вызовов в `ConfigKey::BOOT_INVOCATIONS`. Во время `app:build` регистрации listeners только для разработки удаляются из production-конфигурации. Если runtime-listeners не осталось, таблица discovery-классов также не записывается. `ClassDiscoveryBootloader` никогда не переходит к сканированию классов или файлов в production, а `CompiledBootInvocationBootloader` выполняет только скомпилированный список. Так один boot-метод не выполняется дважды.
+use App\Build\SearchIndexBuilder;
+use Componenta\App\ConfigKey as AppConfigKey;
+use Componenta\Config\ConfigProvider as BaseConfigProvider;
 
-`BootInvocationCompiler` не сканирует классы и не вызывает `finalize()` самостоятельно. Общий `DiscoveryCompiler` перед компиляцией проверяет, что финализируемый слушатель поддерживает `FinalizationStateInterface` и уже финализирован. Поэтому сборка использует тот же результат discovery lifecycle, который был подготовлен загрузчиком классов, без доступа к приватному состоянию слушателя через reflection.
+final class ConfigProvider extends BaseConfigProvider
+{
+    protected function getConfig(): array
+    {
+        return [
+            AppConfigKey::BUILDERS => [SearchIndexBuilder::class],
+        ];
+    }
+}
+~~~
 
-## Discovery Compile Cache
+Билдер может создаваться через автовайринг. Фабрика в `getFactories()` нужна для явной настройки зависимостей, например источника метаданных или пути через `PathResolverInterface`.
 
-`componenta/app` регистрирует `CompileCache` как фабрику контейнера. Фабрика берет `devCompile` и `devDiscovery` из `CacheLayout::fromConfig()`, поэтому изменения `CACHE_DEV_DIR` / `AppConfigKey::CACHE_DEV_DIR` применяются последовательно. `ConfigFactory` может читать compile-delta cache во время сборки конфигурации, но сам сервис контейнера принадлежит провайдеру этого пакета.
+`ApplicationBuildOrchestratorFactory` проверяет весь упорядоченный список: ID должны быть уникальными непустыми строками. Затем фабрика получает все сервисы и проверяет реализацию `ApplicationBuilderInterface` до первого вызова билдера. Отсутствующий или пустой список означает успешное завершение.
 
-Скомпилированный discovery payload содержит одну таблицу классов без дубликатов. Фильтруемые listeners ссылаются на индексы классов через непустые `targets`; listeners, которые намеренно ничего не нашли, объединяются в `empty_targets` и не могут случайно получить все классы. Пустые секции `classes`, `targets` и `empty_targets` не записываются. `ListenerRestorer` также понимает предыдущую форму `targets[listener] => []`, чтобы можно было пересобрать старый dev-cache; production artifacts заново создаются командой `app:build`.
+`ApplicationBuildOrchestrator::build()` вызывает билдеры по порядку. Каждый билдер отвечает за формат своих артефактов, каталоги и атомарную запись. Исключение выходит без подмены и останавливает последующие билдеры; результаты завершённых билдеров сохраняются. Билдеры работают независимо и получают общие исходные данные через зависимости.
 
-## Границы
+BuildCommand получает замыкание, которое разрешает оркестратор из существующего контейнера. Оно вызывается только в `execute()`. Поэтому `list` и `--help` не создают билдеры; обычная подготовка приложения сохраняется. Команда доступна в development и production, в том числе до появления артефактов. Runtime-сервисы могут использовать артефакты или исходные данные; пересборка запускается явно.
 
-`componenta/app` — прикладная склейка. Он может знать о точках входа, структуре проектного кеша, координации компиляции и запуске конкретного приложения. Runtime-библиотеки должны оставаться пригодными для использования без application bootstrapping, filesystem discovery и console registration.
+## Загрузчики и discovery
+
+`ConfigKey::BOOTLOADERS` содержит сервисы загрузчиков. `BootloaderInterface::boot()` получает `BootContext` с текущей областью запуска, целевым объектом и `ContainerValue`. Базовый `Bootloader` поддерживает метод `__invoke()` с внедрением параметров.
+
+`ClassDiscoveryBootloader` передаёт рабочий итератор классов в `ClassListenerNotifier`. Слушатели обрабатывают источник, выбранный ConfigFactory.
+
+`#[Boot]` помечает публичные методы запуска. `BootMethodInvocation` собирает их и при финализации передаёт в `BootInvocationRunner`, который выполняет методы по убыванию приоритета. Явные параметры могут содержать обычные значения и DI-метаданные: `EntryId` для сервиса, `Config` для настройки и `Env` для значения окружения.
+
+## Пути кеша
+
+`CacheLayout` предоставляет каталоги сборки, разработки и runtime. При bootstrap каталог сборки задаётся `ConfigKey::DEFAULT_CACHE_BUILD_DIR`; `CacheLayout::fromConfig()` читает `ConfigKey::CACHE_DEV_DIR` и `ConfigKey::CACHE_RUNTIME_DIR` для остальных каталогов. Конкретные билдеры получают пути своих артефактов через фабрики.
+
+## Пакеты интеграции
+
+- `componenta/app-console` предоставляет Symfony Console и реестр команд.
+- `componenta/app-http` предоставляет HTTP-приложение.
+- `componenta/websocket-app` предоставляет область запуска WebSocket.
+- `componenta/cqrs-app` добавляет CQRS discovery, рабочие карты и билдер.
+- `componenta/interceptor-app` добавляет discovery метаданных интерцепторов и билдер.
+
+Runtime-библиотеки могут использоваться самостоятельно; app-пакеты подключают конфигурацию, discovery, билдеры и запуск приложения.
