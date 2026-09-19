@@ -28,14 +28,6 @@ final class AppFactory implements AppFactoryInterface
             return $adapter->createApp($scope, $container);
         }
 
-        $legacy = $container->config->get(ConfigKey::APP_BY_SCOPE, []);
-        if (is_array($legacy)) {
-            $entry = $legacy[$scope->value] ?? null;
-            if (is_string($entry) && $entry !== '') {
-                return $container->get($entry, AppInterface::class);
-            }
-        }
-
         throw new LogicException(sprintf(
             'Unknown scope "%s" - no matching App adapter.',
             $scope->value,

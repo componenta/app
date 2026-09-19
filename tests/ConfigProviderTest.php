@@ -25,8 +25,9 @@ it('registers runtime application services without Config or DI cache definition
     ])->and($provided[ClassFinderConfigKey::LISTENERS])->toBe([
         BootMethodInvocation::class,
     ])->and($dependencies)->not->toHaveKey(DependencyConfigKey::INVOKABLES)
-        ->and($dependencies[DependencyConfigKey::FACTORIES])->toBe([
+        ->and($dependencies[DependencyConfigKey::FACTORIES])->toMatchArray([
             ApplicationBuildOrchestrator::class => ApplicationBuildOrchestratorFactory::class,
+            \Componenta\App\Build\DiscoveryBuilder::class => \Componenta\App\Build\DiscoveryBuilderFactory::class,
         ])
         ->and($provided)->not->toHaveKey('Componenta\\App\\Discovery::cache')
         ->and($dependencies)->not->toHaveKey('plans');

@@ -17,4 +17,13 @@ final class ApplicationBuildOrchestrator
             $builder->build();
         }
     }
+
+    public function clean(): void
+    {
+        foreach ($this->builders as $builder) {
+            if ($builder instanceof ApplicationBuildCleanerInterface) {
+                $builder->clean();
+            }
+        }
+    }
 }

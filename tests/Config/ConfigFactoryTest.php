@@ -229,3 +229,86 @@ it('shares current source with discovery-aware providers in both environments', 
         removeAppConfigFactoryRoot($root);
     }
 });
+
+it('uses built discovery at runtime and gives builders a fresh shared source for a rebuild', function (): void {
+    $root = appConfigFactoryRoot('built_discovery');
+    $file = $root . '/src/Original.php';
+    $autoload = static function (string $class) use ($root): void {
+        $file = match ($class) {
+            'BuiltDiscoveryOriginal' => $root . '/src/Original.php',
+            'BuiltDiscoveryAdded' => $root . '/src/Added.php',
+            default => null,
+        };
+        if ($file !== null) { require_once $file; }
+    };
+    spl_autoload_register($autoload);
+    try {
+        file_put_contents($file, '<?php final class BuiltDiscoveryOriginal {}');
+        $paths = new PathResolver($root);
+        $definition = appConfigDefinition([new \Componenta\App\ConfigProvider()]);
+        $initial = ConfigFactory::create($paths, $definition, new Environment([]));
+        $container = (new \Componenta\DI\ContainerFactory())->create($initial->config, $initial->dependencies);
+        $container->get(\Componenta\App\Build\ApplicationBuildOrchestrator::class)->build();
+
+        file_put_contents($root . '/src/Added.php', '<?php final class BuiltDiscoveryAdded {}');
+        $built = ConfigFactory::create($paths, $definition, new Environment([]));
+        expect(array_map(static fn (ClassInfo $info): string => $info->fullyQualifiedName, $built->discovered->toArray()))
+            ->toBe(['BuiltDiscoveryOriginal']);
+
+        $rebuild = (new \Componenta\DI\ContainerFactory())->create($built->config, $built->dependencies);
+        $rebuild->get(\Componenta\App\Build\ApplicationBuildOrchestrator::class)->build();
+        $after = ConfigFactory::create($paths, $definition, new Environment([]));
+        expect(array_map(static fn (ClassInfo $info): string => $info->fullyQualifiedName, $after->discovered->toArray()))
+            ->toContain('BuiltDiscoveryOriginal', 'BuiltDiscoveryAdded')->toHaveCount(2);
+    } finally {
+        spl_autoload_unregister($autoload);
+        removeAppConfigFactoryRoot($root);
+    }
+});
+
+it('uses source discovery when the prepared map is missing or unusable without writing a development cache', function (?string $artifact): void {
+    $root = appConfigFactoryRoot('map_fallback');
+    try {
+        file_put_contents($root . '/src/Current.php', '<?php final class MapFallbackCurrent {}');
+        $mapFile = $root . '/var/cache/build/classes.php';
+        if ($artifact !== null) {
+            mkdir(dirname($mapFile), 0700, true);
+            file_put_contents($mapFile, $artifact);
+        }
+        $result = ConfigFactory::create(new PathResolver($root), appConfigDefinition([]), new Environment([]));
+        expect(array_map(static fn (ClassInfo $class): string => $class->fullyQualifiedName, $result->discovered->toArray()))
+            ->toBe(['MapFallbackCurrent'])
+            ->and(is_dir($root . '/var/cache/dev'))->toBeFalse();
+        if ($artifact === null) {
+            expect(is_dir($root . '/var'))->toBeFalse();
+        } else {
+            expect(file_get_contents($mapFile))->toBe($artifact);
+        }
+    } finally {
+        removeAppConfigFactoryRoot($root);
+    }
+})->with([
+    'missing' => [null],
+    'wrong root' => ['<?php return null;'],
+    'invalid declaration' => ['<?php return [["name" => "Incomplete"]];'],
+    'invalid PHP' => ['<?php return [;'],
+]);
+
+it('lets the application override the builder list contributed by the App provider', function (): void {
+    $root = appConfigFactoryRoot('builder_override');
+    try {
+        $result = ConfigFactory::create(new PathResolver($root), appConfigDefinition([
+            new \Componenta\App\ConfigProvider(),
+            static fn (): array => [
+                \Componenta\App\ConfigKey::BUILDERS => \Componenta\Config\ConfigOverride::replace([]),
+            ],
+        ]), new Environment([]));
+        $container = (new \Componenta\DI\ContainerFactory())->create($result->config, $result->dependencies);
+        $container->get(\Componenta\App\Build\ApplicationBuildOrchestrator::class)->build();
+
+        expect($result->config->get(\Componenta\App\ConfigKey::BUILDERS))->toBe([])
+            ->and(is_dir($root . '/var'))->toBeFalse();
+    } finally {
+        removeAppConfigFactoryRoot($root);
+    }
+});

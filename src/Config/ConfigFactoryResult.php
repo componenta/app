@@ -14,13 +14,9 @@ final readonly class ConfigFactoryResult
     public Config $config;
     public DependencyDefinitions $dependencies;
 
-    /**
-     * @param list<string> $diagnostics
-     */
     public function __construct(
         public ConfigComposition $composition,
         public ?ClassIteratorInterface $discovered = null,
-        public array $diagnostics = [],
     ) {
         $this->config = $composition->config;
         $this->dependencies = $composition->dependencies;

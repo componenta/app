@@ -24,14 +24,15 @@ class ConfigKey extends \Componenta\Config\ConfigKey
     /** Ordered list of independent application builder service IDs. */
     public const string BUILDERS = 'app.builders';
 
-    /** Shared lazy source class iterator for runtime services and builders. */
+    /** Shared lazy discovery of current source files, independent of the runtime class map. */
     public const string DISCOVERY_SOURCE = 'app.discovery.source';
 
-    /**
-     * Legacy scope map consumed as a fallback while runtime integration
-     * packages migrate to APP_ADAPTERS.
-     */
-    public const string APP_BY_SCOPE = 'app_by_scope';
+    public const string DISCOVERY_MAP_FILE = 'var/cache/build/classes.php';
+
+    /** DI service indicating that runtime discovery came from a valid map. */
+    public const string DISCOVERY_PREPARED = 'app.discovery.prepared';
+
+    public const string BOOT_MAP_FILE = 'var/cache/build/boot.php';
 
     /**
      * Ordered list of bootloader class-strings driving the application's

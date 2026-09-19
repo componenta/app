@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Componenta\App\Build\ApplicationBuilderInterface;
+use Componenta\App\Build\ApplicationBuildCleanerInterface;
 use Componenta\App\Build\ApplicationBuildOrchestrator;
 use Componenta\App\Build\ApplicationBuildOrchestratorFactory;
 use Componenta\App\ConfigKey as AppConfigKey;
@@ -200,6 +201,7 @@ it('accepts an absent or empty builder list', function (array $configuration): v
     $orchestrator = $container->get(ApplicationBuildOrchestrator::class);
 
     expect($orchestrator->build())->toBeNull();
+    expect($orchestrator->clean())->toBeNull();
 })->with([
     'absent' => [[]],
     'empty' => [[AppConfigKey::BUILDERS => []]],
@@ -227,4 +229,54 @@ it('preserves completed effects and propagates the original failure without runn
     }
 
     expect($effects->getArrayCopy())->toBe(['completed']);
+});
+
+it('cleans only participating builders in registration order without building', function (): void {
+    $effects = new ArrayObject();
+    $cleaner = static fn (string $name): ApplicationBuilderInterface =>
+        new class($effects, $name) implements ApplicationBuilderInterface, ApplicationBuildCleanerInterface {
+            public function __construct(private ArrayObject $effects, private string $name) {}
+            public function build(): void { throw new LogicException('Clean must not build.'); }
+            public function clean(): void { $this->effects[] = $this->name; }
+        };
+    $buildOnly = new class implements ApplicationBuilderInterface {
+        public function build(): void { throw new LogicException('Clean must not build.'); }
+    };
+    $container = applicationBuildTestContainer(static fn (): array => [
+        AppConfigKey::BUILDERS => ['first.cleaner', 'build.only', 'second.cleaner'],
+        ConfigKey::DEPENDENCIES => [ConfigKey::SERVICES => [
+            'first.cleaner' => $cleaner('first'),
+            'build.only' => $buildOnly,
+            'second.cleaner' => $cleaner('second'),
+        ]],
+    ]);
+
+    $container->get(ApplicationBuildOrchestrator::class)->clean();
+
+    expect($effects->getArrayCopy())->toBe(['first', 'second']);
+});
+
+it('preserves completed cleanup and propagates the original failure without cleaning later builders', function (): void {
+    $artifacts = new ArrayObject(['first' => true, 'last' => true]);
+    $failure = new DomainException('Cleanup failed');
+    $builder = static fn (Closure $action): ApplicationBuilderInterface =>
+        new class($action) implements ApplicationBuilderInterface, ApplicationBuildCleanerInterface {
+            public function __construct(private Closure $action) {}
+            public function build(): void { throw new LogicException('Clean must not build.'); }
+            public function clean(): void { ($this->action)(); }
+        };
+    $orchestrator = new ApplicationBuildOrchestrator([
+        $builder(static function () use ($artifacts): void { unset($artifacts['first']); }),
+        $builder(static function () use ($failure): never { throw $failure; }),
+        $builder(static function () use ($artifacts): void { unset($artifacts['last']); }),
+    ]);
+
+    try {
+        $orchestrator->clean();
+        test()->fail('The cleanup failure must propagate.');
+    } catch (DomainException $caught) {
+        expect($caught)->toBe($failure);
+    }
+
+    expect($artifacts->getArrayCopy())->toBe(['last' => true]);
 });

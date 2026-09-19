@@ -10,8 +10,7 @@ use Componenta\ClassFinder\ClassListenerNotifier;
 use Componenta\Scope\Scopes;
 
 /**
- * Feeds the same semantic listeners from either source discovery or a
- * verified production snapshot. Source selection happens in ConfigFactory.
+ * Notifies registered listeners using the application's shared class iterator.
  */
 final class ClassDiscoveryBootloader implements BootloaderInterface
 {
