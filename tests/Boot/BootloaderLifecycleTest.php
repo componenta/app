@@ -127,3 +127,29 @@ it('rejects recursive boot and releases context after failures so a subsequent s
     $loader->boot($second);
     expect($loader->scopesSeen)->toBe([Scope::HTTP, Scope::HTTP, Scope::CLI]);
 });
+
+
+it('rejects aliases resolving to the same bootloader before starting any bootloader', function (): void {
+    $loader = new BootReentryLoader();
+    $invoker = new class implements CallableInvokerInterface {
+        public function call(mixed $callable, array $params = []): mixed { return $callable(...$params); }
+    };
+    $context = new BootContext(
+        new ContainerValue(new BootLifecycleContainer([
+            BootLifecycleLoader::class => $loader,
+            BootReentryLoader::class => $loader,
+            CallableInvokerInterface::class => $invoker,
+        ]), new Config([
+            ConfigKey::BOOTLOADERS => [BootLifecycleLoader::class, BootReentryLoader::class],
+        ], new Environment([]))),
+        Scope::HTTP,
+        new stdClass(),
+    );
+
+    expect(function () use ($context): void {
+        foreach ((new BootloaderProvider())->provideFor($context) as $selected) {
+            $selected->boot($context);
+        }
+    })->toThrow(LogicException::class, 'same instance');
+    expect($loader->scopesSeen)->toBe([]);
+});

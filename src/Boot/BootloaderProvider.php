@@ -42,8 +42,19 @@ final class BootloaderProvider implements BootloaderProviderInterface
         }
 
         $instances = [];
+        $resolved = [];
         foreach ($bootloaders as $bootloader) {
-            $instances[] = $context->container->get($bootloader, BootloaderInterface::class);
+            $instance = $context->container->get($bootloader, BootloaderInterface::class);
+            $identity = spl_object_id($instance);
+            if (isset($resolved[$identity])) {
+                throw new LogicException(sprintf(
+                    'Bootloader registrations "%s" and "%s" resolve to the same instance.',
+                    $resolved[$identity],
+                    $bootloader,
+                ));
+            }
+            $resolved[$identity] = $bootloader;
+            $instances[] = $instance;
         }
 
         foreach ($instances as $instance) {
