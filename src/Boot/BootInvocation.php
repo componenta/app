@@ -9,6 +9,9 @@ namespace Componenta\App\Boot;
  */
 final readonly class BootInvocation
 {
+    /** @var array<string|int, mixed> */
+    public array $params;
+
     /**
      * @param class-string $class
      * @param array<string|int, mixed> $params
@@ -17,7 +20,12 @@ final readonly class BootInvocation
         public string $class,
         public string $method,
         public int $priority = 0,
-        public array $params = [],
+        array $params = [],
     ) {
+        $snapshot = [];
+        foreach ($params as $key => $value) {
+            $snapshot[$key] = $value;
+        }
+        $this->params = $snapshot;
     }
 }

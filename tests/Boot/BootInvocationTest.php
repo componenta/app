@@ -265,3 +265,50 @@ it('keeps the validated boot map independent of caller-owned reference slots', f
 
     expect($runner->methods)->toBe(['lower', 'higher']);
 });
+
+
+final class BootParameterReferenceFixture
+{
+    public static mixed $received;
+
+    public static function accept(object $value): void
+    {
+        self::$received = $value;
+    }
+}
+
+it('detaches boot argument reference slots while preserving object identity and reusable metadata', function (): void {
+    $first = new stdClass();
+    $second = new stdClass();
+    $metadata = new EntryId('referenced.value');
+    $params = ['value' => &$metadata];
+    $attribute = new Boot(params: $params);
+    $invocation = new \Componenta\App\Boot\BootInvocation(
+        class: BootParameterReferenceFixture::class,
+        method: 'accept',
+        params: $params,
+    );
+
+    $metadata = new EntryId('different.value');
+    expect($attribute->params['value']->value)->toBe('referenced.value')
+        ->and($invocation->params['value']->value)->toBe('referenced.value');
+
+    $runner = static fn (object $value) => new BootInvocationRunner(
+        new BootInvocationTestContainer(['referenced.value' => $value]),
+        new BootInvocationTestExecutor(),
+    );
+    $runner($first)->run([$invocation]);
+    expect(BootParameterReferenceFixture::$received)->toBe($first);
+    $runner($second)->run([$invocation]);
+    expect(BootParameterReferenceFixture::$received)->toBe($second)
+        ->and($invocation->params['value'])->toBeInstanceOf(EntryId::class)
+        ->and($metadata->value)->toBe('different.value');
+
+    $literal = new \Componenta\App\Boot\BootInvocation(
+        class: BootParameterReferenceFixture::class,
+        method: 'accept',
+        params: ['value' => $first],
+    );
+    $runner($second)->run([$literal]);
+    expect(BootParameterReferenceFixture::$received)->toBe($first);
+});

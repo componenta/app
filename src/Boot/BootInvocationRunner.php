@@ -37,15 +37,16 @@ final readonly class BootInvocationRunner implements BootInvocationRunnerInterfa
 
         foreach ($ordered as $invocation) {
             $callable = [$invocation->class, $invocation->method];
-            $params = $invocation->params;
+            $params = [];
             $targets = null;
 
-            foreach ($params as $key => $value) {
+            foreach ($invocation->params as $key => $value) {
                 if ($value instanceof EntryId) {
                     $params[$key] = $this->container->get($value->value);
                     continue;
                 }
                 if (!$value instanceof Env && !$value instanceof ConfigAttr) {
+                    $params[$key] = $value;
                     continue;
                 }
 
