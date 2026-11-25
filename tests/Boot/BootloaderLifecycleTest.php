@@ -2,7 +2,6 @@
 
 declare(strict_types=1);
 
-use Componenta\App\AppInterface;
 use Componenta\App\Boot\BootContext;
 use Componenta\App\Boot\Bootloader;
 use Componenta\App\Boot\BootloaderProvider;
@@ -79,3 +78,52 @@ it('rejects a malformed later bootloader registration before executing any loade
     })->toThrow(LogicException::class);
     expect($loader->calls)->toBe(0)->and($loader->checks)->toBe(0);
 })->with([stdClass::class, BootLifecycleLoader::class]);
+
+
+final class BootReentryLoader extends Bootloader
+{
+    public array $scopesSeen = [];
+    public bool $reenter = false;
+    public ?DomainException $failure = null;
+
+    public Scopes $scopes {
+        get => Scopes::of(Scope::HTTP, Scope::CLI);
+    }
+
+    public function __invoke(): void
+    {
+        $this->scopesSeen[] = $this->context->scope;
+        if ($this->reenter) {
+            $this->reenter = false;
+            $this->boot($this->context);
+        }
+        if ($this->failure !== null) {
+            throw $this->failure;
+        }
+    }
+}
+
+it('rejects recursive boot and releases context after failures so a subsequent supported invocation can run', function (): void {
+    $loader = new BootReentryLoader();
+    $invoker = new class implements CallableInvokerInterface {
+        public function call(mixed $callable, array $params = []): mixed { return $callable(...$params); }
+    };
+    $container = new ContainerValue(
+        new BootLifecycleContainer([CallableInvokerInterface::class => $invoker]),
+        new Config([], new Environment([])),
+    );
+    $first = new BootContext($container, Scope::HTTP, new stdClass());
+    $second = new BootContext($container, Scope::CLI, new stdClass());
+    expect($loader->supports($first))->toBeTrue()
+        ->and($loader->supports($second))->toBeTrue();
+
+    $loader->reenter = true;
+    expect(fn () => $loader->boot($first))->toThrow(LogicException::class, 'recursively');
+    $failure = new DomainException('Startup failure');
+    $loader->failure = $failure;
+    expect(fn () => $loader->boot($first))->toThrow(DomainException::class, 'Startup failure');
+    $loader->failure = null;
+
+    $loader->boot($second);
+    expect($loader->scopesSeen)->toBe([Scope::HTTP, Scope::HTTP, Scope::CLI]);
+});

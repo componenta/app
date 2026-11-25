@@ -145,3 +145,36 @@ describe('boot target factory', function () {
             ->and($app->ran)->toBeTrue();
     });
 });
+
+
+it('does not enter the application runtime when a bootloader fails', function (): void {
+    $app = new RunnerBootTargetApp();
+    $failure = new DomainException('Boot must fail before run');
+    $loader = new class($failure) implements BootloaderInterface {
+        use ScopedBootloaderSupport;
+
+        public Scopes $scopes {
+            get => Scopes::of(Scope::HTTP);
+        }
+
+        public function __construct(private readonly DomainException $failure) {}
+
+        public function boot(BootContext $context): void
+        {
+            throw $this->failure;
+        }
+    };
+    $container = new RunnerBootTargetContainer([
+        AppFactoryInterface::class => new RunnerBootTargetAppFactory($app),
+        BootTargetFactoryInterface::class => new RunnerBootTargetFactory(new RunnerBootTargetMarker()),
+        BootloaderProviderInterface::class => new RunnerBootTargetProvider($loader),
+    ]);
+    $value = new ContainerValue($container, new Config([], new Environment([])));
+
+    try {
+        Runner::run(Scope::HTTP, $value);
+        test()->fail('The original boot failure must propagate.');
+    } catch (DomainException $caught) {
+        expect($caught)->toBe($failure)->and($app->ran)->toBeFalse();
+    }
+});
