@@ -29,3 +29,4 @@ jobs:
       - run: composer install --no-interaction --prefer-dist
       - run: composer dump-autoload --optimize --strict-psr --strict-ambiguous
       - run: composer test
+      - run: php benchmarks/bootstrap.php 300 5

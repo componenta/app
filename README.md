@@ -28,7 +28,22 @@ require $root . '/vendor/autoload.php';
 run(Scope::CLI, new PathResolver($root));
 ~~~
 
-`run()` changes the working directory to the project root, loads `config/container.php`, checks its PSR-11 container result, and delegates to `Runner`. The runner creates the scoped application through `AppFactory`, adapts its boot target, runs bootloaders, and starts the application.
+`run()` changes the working directory to the project root, loads `config/container.php`, checks its PSR-11 container result, and delegates to `Runner`. The runner resolves the scoped application through `AppFactory`, creates a separate boot target, runs bootloaders, and starts the application only after they finish.
+
+Runtime integration providers register a scope value and a container service ID in `ConfigKey::APPLICATIONS`:
+
+~~~php
+use Componenta\App\ConfigKey;
+use Componenta\App\Scope;
+
+return [
+    ConfigKey::APPLICATIONS => [
+        Scope::HTTP->value => MyHttpApplication::class,
+    ],
+];
+~~~
+
+The registered service must implement `AppInterface`. Scope values are exact keys; a custom scope needs its own registration. The application factory resolves only the selected service. The boot target adapter remains a separate extension point and must wrap the application in a capability-only object, never return it or expose its `run()` method. Bootloaders obtain this object through `BootContext::target(Contract::class)`. The container remains trusted application infrastructure, not an isolation or security sandbox.
 
 ## Configuration and container
 
@@ -72,7 +87,11 @@ ConfigFactory registers `PathResolverInterface`. With discovery configured, it p
 
 `app:build` also runs `DiscoveryBuilder` and atomically writes `var/cache/build/classes.php`. Its ordered records preserve each declaration's source filename, fully qualified name, kind, and abstract/final/readonly flags, including multiple declarations from one file. `ClassIterator::fromMap()` reconstructs a normal `ClassIterator` from this map without traversing source directories or tokenizing files.
 
-A usable map selects prepared discovery until it is removed or rebuilt, independently of `APP_ENV`. Changes to discovery inputs require another build. Delete the map to return to source discovery. Missing or unusable maps fall back to the source without writing files at runtime.
+A usable map selects prepared discovery until it is removed or rebuilt, independently of `APP_ENV`. Changes to discovery inputs require another build. Missing or unusable maps fall back to the source without writing files at runtime. Set `APP_DISCOVERY_SOURCE=1` to force source discovery for a recovery startup, even if stale artifacts remain.
+
+The App discovery and boot maps carry a format version and a shared build generation. A boot map from a different generation, including an incomplete or interrupted rebuild, is ignored. Legacy unversioned App maps are ignored and can be rebuilt. Other integration-specific map formats are owned by their respective packages.
+
+PHP maps are executable, trusted deployment artifacts. Store them outside the public web root in directories writable only by trusted deployment identities; never accept an uploaded or user-controlled map. The reader rejects symbolic-link map files and group/other-writable files on POSIX. Publish completed artifacts before starting or reloading workers.
 
 `AttributeConfigProvider` stays in the application configuration and consumes the selected iterator. It continues finding and invoking configuration providers through the same attribute logic. `FileProvider` registrations and configuration merge order are unchanged. Build never edits `config/config.php`.
 
@@ -151,13 +170,13 @@ interface ApplicationBuildCleanerInterface
 
 ## Bootloaders and discovery
 
-`ConfigKey::BOOTLOADERS` registers bootloader services. `BootloaderInterface::boot()` receives `BootContext` with the current scope, boot target and `ContainerValue`. The base `Bootloader` supports an injectable `__invoke()` method.
+The ordered `ConfigKey::BOOTLOADERS` list registers unique bootloader class-strings. The provider validates registrations and resolves services before execution, then checks `supports()` once for each candidate in order. `BootloaderInterface::boot()` receives `BootContext` with the current scope, typed target access and `ContainerValue`. Direct callers must check applicability before invoking `boot()`. The base `Bootloader` supports an injectable `__invoke()` method. `DateTimeBootloader` applies `APP_TIMEZONE` (UTC by default) to HTTP, CLI and WebSocket and rejects an invalid timezone.
 
 `ClassDiscoveryBootloader` passes the runtime class iterator to `ClassListenerNotifier`. Listener processing uses the source selected by ConfigFactory.
 
 `#[Boot]` marks public startup methods. `BootMethodInvocation` collects them and, when finalized, passes them to `BootInvocationRunner` for execution by descending priority. Explicit boot parameters can contain plain values or DI metadata: `EntryId` for a service, `Config` for a setting, and `Env` for an environment value.
 
-With discovery configured, `BootBuilder` writes `var/cache/build/boot.php`: each class maps to the ordered public methods carrying `#[Boot]`, including inherited methods. Attributes and nested parameter objects are instantiated natively at runtime. The map avoids enumerating all methods; missing or malformed maps use the original path. Source discovery ignores previous boot maps. Use `app:clean` to remove build artifacts before the next application startup needs fresh discovery.
+With discovery configured, `BootBuilder` writes `var/cache/build/boot.php`: each class maps to the ordered public methods carrying `#[Boot]`, including inherited methods. Attributes and nested parameter objects are instantiated natively at runtime. The map avoids enumerating all methods and skips autoloading declarations with no boot methods; missing, malformed or mismatched-generation maps use the original path. Source discovery ignores previous boot maps. Use `app:clean` to remove build artifacts before the next application startup needs fresh discovery.
 
 ## Cache paths
 
@@ -172,3 +191,7 @@ Concrete builders receive their artifact paths through their factories using `Pa
 - `componenta/interceptor-app` supplies interceptor metadata discovery and its builder.
 
 Reusable runtime libraries can be used independently; their app packages connect configuration, discovery, builders and startup.
+
+## Performance benchmark
+
+Run `php benchmarks/bootstrap.php 500 7` after installing development dependencies. The benchmark measures application configuration, container creation and boot method discovery/execution for the same synthetic declarations in fresh PHP processes, in source and prepared modes. It reports median wall time, autoload counts and peak memory. It is not an HTTP request/TTFB benchmark and uses no timing threshold in CI.
