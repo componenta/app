@@ -27,7 +27,7 @@ final readonly class BootTargetFactory implements BootTargetFactoryInterface
             }
 
             $target = $adapter->create($app, $scope);
-            if ($target instanceof AppInterface) {
+            if ($target instanceof AppInterface || is_callable([$target, 'run'])) {
                 throw new LogicException('A runnable application cannot be used as a boot target.');
             }
 

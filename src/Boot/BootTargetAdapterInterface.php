@@ -11,6 +11,9 @@ interface BootTargetAdapterInterface
 {
     public function supports(ScopeInterface $scope): bool;
 
-    /** Return a separate capability object that never exposes the runnable application. */
+    /**
+     * Return a separate capability object. It must not expose the application's
+     * run() method, return the application, or forward arbitrary calls to it.
+     */
     public function create(AppInterface $app, ScopeInterface $scope): object;
 }

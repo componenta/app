@@ -140,3 +140,13 @@ it('rejects a runnable target even when a custom factory bypasses the standard f
     expect(fn () => new \Componenta\App\Boot\BootContext($container, Scope::HTTP, new BootTargetFactoryAdapterTestApp()))
         ->toThrow(LogicException::class, 'runnable application');
 });
+
+
+it('rejects a boot target exposing the run entry point without implementing AppInterface', function (): void {
+    $container = new ContainerValue(new BootTargetFactoryAdapterTestContainer([]), new Config([], new Environment([])));
+    $target = new class {
+        public function run(): void {}
+    };
+    expect(fn () => new \Componenta\App\Boot\BootContext($container, Scope::HTTP, $target))
+        ->toThrow(LogicException::class, 'runnable application');
+});

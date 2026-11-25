@@ -21,7 +21,7 @@ final readonly class BootContext
         public ScopeInterface $scope,
         private object $target,
     ) {
-        if ($target instanceof AppInterface) {
+        if ($target instanceof AppInterface || is_callable([$target, 'run'])) {
             throw new LogicException('A runnable application cannot be used as a boot target.');
         }
     }
