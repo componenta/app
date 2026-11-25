@@ -12,7 +12,7 @@ use Throwable;
 final readonly class AttributeConfigProvider implements DiscoveryAwareConfigProviderInterface
 {
     public function __construct(
-        public ?ClassIteratorInterface $discovered = null,
+        private ?ClassIteratorInterface $discovered = null,
     ) {
     }
 

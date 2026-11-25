@@ -1,8 +1,13 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Componenta\App\Config;
 
-#[\Attribute(\Attribute::TARGET_CLASS | \Attribute::TARGET_FUNCTION | \Attribute::TARGET_METHOD)]
-class AsConfig
+use Attribute;
+
+/** Marks an invokable class providing application configuration. */
+#[Attribute(Attribute::TARGET_CLASS)]
+final class AsConfig
 {
 }

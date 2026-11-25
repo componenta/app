@@ -19,5 +19,19 @@ final readonly class DiscoveryDefinition implements DiscoveryDefinitionInterface
         if ($this->directories === []) {
             throw new InvalidArgumentException('Discovery directories cannot be empty.');
         }
+        self::validate($this->directories, 'directories');
+        self::validate($this->exclude, 'exclude patterns');
+    }
+
+    private static function validate(array $items, string $name): void
+    {
+        if (!array_is_list($items)) {
+            throw new InvalidArgumentException(sprintf('Discovery %s must be a list.', $name));
+        }
+        foreach ($items as $item) {
+            if (!is_string($item) || trim($item) === '') {
+                throw new InvalidArgumentException(sprintf('Discovery %s must contain non-empty strings.', $name));
+            }
+        }
     }
 }

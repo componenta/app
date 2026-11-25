@@ -36,10 +36,13 @@ final class ConfigFactory
         $source = null;
         $discovered = null;
         $generation = null;
-        if ($definition->discovery !== null) {
+        $configuredDiscovery = $definition->discovery;
+        if ($configuredDiscovery !== null) {
+            // Capture and validate custom definitions before creating the lazy source.
+            $discovery = new DiscoveryDefinition($configuredDiscovery->directories, $configuredDiscovery->exclude);
             $createSource = static fn (): ClassIteratorInterface => (new ClassFinder())->find(
-                self::resolveDirectories($paths, $definition->discovery->directories),
-                $definition->discovery->exclude,
+                self::resolveDirectories($paths, $discovery->directories),
+                $discovery->exclude,
             );
             $prepared = $environment->bool('APP_DISCOVERY_SOURCE', false)
                 ? null

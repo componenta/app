@@ -25,8 +25,7 @@ describe('AttributeConfigProvider', function () {
     it('returns empty config when discovery is not available', function () {
         $provider = new AttributeConfigProvider();
 
-        expect($provider->discovered)->toBeNull()
-            ->and(iterator_to_array($provider()))->toBe([]);
+        expect(iterator_to_array($provider()))->toBe([]);
     });
 
     it('returns a new provider with discovered classes', function () {
@@ -38,8 +37,7 @@ describe('AttributeConfigProvider', function () {
         $configured = $provider->withDiscovered($classes);
 
         expect($configured)->not->toBe($provider)
-            ->and($provider->discovered)->toBeNull()
-            ->and($configured->discovered)->toBe($classes)
+            ->and(iterator_to_array($provider()))->toBe([])
             ->and(iterator_to_array($configured()))->toBe([[
                 'attribute-provider-test' => [
                     'loaded' => true,

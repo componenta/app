@@ -8,7 +8,5 @@ use Componenta\ClassFinder\ClassIteratorInterface;
 
 interface DiscoveryAwareConfigProviderInterface
 {
-    public ?ClassIteratorInterface $discovered { get; }
-
     public function withDiscovered(?ClassIteratorInterface $discovered): static;
 }
