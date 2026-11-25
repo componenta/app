@@ -15,14 +15,6 @@ use PhpBench\Attributes as Bench;
 
 require_once dirname(__DIR__) . '/Support/Fixture.php';
 
-final class BenchmarkPackageProvider
-{
-    public function __invoke(): array
-    {
-        return ['bench.package_contributions' => [true]];
-    }
-}
-
 #[Bench\Revs(1)]
 #[Bench\Iterations(7)]
 #[Bench\AfterMethods('tearDown')]

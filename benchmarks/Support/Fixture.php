@@ -32,6 +32,14 @@ use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
 use RuntimeException;
 
+final class BenchmarkPackageProvider
+{
+    public function __invoke(): array
+    {
+        return ['bench.package_contributions' => [true]];
+    }
+}
+
 final class BenchmarkState
 {
     public static int $bootCalls = 0;
