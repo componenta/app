@@ -110,3 +110,32 @@ describe('boot invocations', function (): void {
     });
 
 });
+
+
+it('rejects new boot invocations after finalization has started, including on failure', function (bool $fail): void {
+    $failure = new DomainException('Boot failed');
+    $runner = new class($fail, $failure) implements BootInvocationRunnerInterface {
+        public int $calls = 0;
+        public function __construct(private bool $fail, private Throwable $failure) {}
+        public function run(iterable $invocations): void
+        {
+            ++$this->calls;
+            if ($this->fail) { throw $this->failure; }
+        }
+    };
+    $listener = new BootMethodInvocation($runner);
+    $info = new ClassInfo(BootInvocationFixture::class);
+    $listener->handle($info);
+
+    if ($fail) {
+        expect(fn () => $listener->finalize())->toThrow(DomainException::class, 'Boot failed');
+    } else {
+        $listener->finalize();
+    }
+
+    expect(fn () => $listener->handle($info))
+        ->toThrow(\Componenta\ClassFinder\Exception\ListenerAlreadyFinalizedException::class);
+    expect(fn () => $listener->finalize())
+        ->toThrow(\Componenta\ClassFinder\Exception\ListenerAlreadyFinalizedException::class);
+    expect($runner->calls)->toBe(1);
+})->with([true, false]);

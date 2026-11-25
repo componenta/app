@@ -41,6 +41,10 @@ final class BootMethodInvocation implements
 
     public function handle(ClassInfo $info): void
     {
+        if ($this->isFinalized) {
+            throw ListenerAlreadyFinalizedException::forListener(self::class);
+        }
+
         $extracted = $this->extract($info->reflector);
 
         foreach ($extracted as $invocation) {
