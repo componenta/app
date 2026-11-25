@@ -20,8 +20,10 @@ final class BootMethodInvocation implements
     /** @var list<BootInvocation> */
     private array $invocations = [];
     private bool $isFinalized = false;
+    /** @var array<string, true> */
+    private array $seen = [];
     /** @var array<class-string, list<non-empty-string>>|null */
-    private readonly ?array $methodMap;
+    private ?array $methodMap;
 
     public bool $finalized {
         get => $this->isFinalized;
@@ -40,8 +42,14 @@ final class BootMethodInvocation implements
             throw ListenerAlreadyFinalizedException::forListener(self::class);
         }
 
+        $key = strtolower(ltrim($info->fullyQualifiedName, '\\'));
+        if (isset($this->seen[$key])) {
+            return;
+        }
+
         // A prepared entry with no boot methods needs neither autoload nor reflection.
         if (($this->methodMap[$info->fullyQualifiedName] ?? null) === []) {
+            $this->seen[$key] = true;
             return;
         }
 
@@ -50,6 +58,7 @@ final class BootMethodInvocation implements
         foreach ($extracted as $invocation) {
             $this->invocations[] = $invocation;
         }
+        $this->seen[$key] = true;
     }
 
     public function finalize(): void
@@ -59,7 +68,12 @@ final class BootMethodInvocation implements
         }
 
         $this->isFinalized = true;
-        $this->runner->run($this->invocations);
+        $invocations = $this->invocations;
+        $this->invocations = [];
+        $this->seen = [];
+        $this->methodMap = null;
+
+        $this->runner->run($invocations);
     }
 
     /**

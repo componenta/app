@@ -197,3 +197,46 @@ it('does not autoload declarations without boot methods when using prepared meta
         spl_autoload_unregister($autoload);
     }
 });
+
+
+final class BootDiscoveryRetentionValue
+{
+    public static ?WeakReference $reference = null;
+
+    public function __construct()
+    {
+        self::$reference = WeakReference::create($this);
+    }
+}
+
+final class BootDiscoveryRetentionFixture
+{
+    public static int $calls = 0;
+
+    #[Boot(params: ['value' => new BootDiscoveryRetentionValue()])]
+    public static function start(BootDiscoveryRetentionValue $value): void
+    {
+        ++self::$calls;
+    }
+}
+
+it('runs boot attributes once per discovered declaration and releases temporary parameter objects', function (bool $prepared): void {
+    BootDiscoveryRetentionFixture::$calls = 0;
+    BootDiscoveryRetentionValue::$reference = null;
+    $container = new BootInvocationTestContainer([]);
+    $listener = new BootMethodInvocation(
+        new BootInvocationRunner($container, new BootInvocationTestExecutor()),
+        $prepared ? [BootDiscoveryRetentionFixture::class => ['start']] : null,
+    );
+
+    $listener->handle(new ClassInfo(BootDiscoveryRetentionFixture::class));
+    $listener->handle(new ClassInfo(strtolower(BootDiscoveryRetentionFixture::class)));
+    $reference = BootDiscoveryRetentionValue::$reference;
+    expect($reference)->toBeInstanceOf(WeakReference::class)
+        ->and($reference->get())->toBeInstanceOf(BootDiscoveryRetentionValue::class);
+
+    $listener->finalize();
+
+    expect(BootDiscoveryRetentionFixture::$calls)->toBe(1)
+        ->and($reference->get())->toBeNull();
+})->with([true, false]);
