@@ -22,11 +22,13 @@ final class AtomicFileWriter
         });
         try {
             self::ensureDirectory($directory);
-            $temporary = $directory . '/.' . basename($file) . '.' . bin2hex(random_bytes(12)) . '.tmp';
-            $stream = fopen($temporary, 'xb');
+            $candidate = $directory . '/.' . basename($file) . '.' . bin2hex(random_bytes(12)) . '.tmp';
+            $stream = fopen($candidate, 'xb');
             if ($stream === false) {
                 throw new RuntimeException(sprintf('Cannot open build file "%s".', $file));
             }
+            // Cleanup owns this path only after exclusive creation succeeds.
+            $temporary = $candidate;
             if (DIRECTORY_SEPARATOR === '/') {
                 $stat = fstat($stream);
                 if ($stat === false || !chmod($temporary, ($stat['mode'] & 0o777) & ~0o022)) {

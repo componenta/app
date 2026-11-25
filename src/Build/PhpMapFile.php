@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Componenta\App\Build;
 
 use Componenta\App\Internal\AtomicFileWriter;
+use Componenta\App\Internal\BuildArtifact;
 use Componenta\VarExport\ArrayExporter;
 use Componenta\VarExport\ScalarExporter;
 use Componenta\VarExport\VarExport;
@@ -48,13 +49,23 @@ final class PhpMapFile
         }
     }
 
-    public static function write(string $file, array $map): void
+    /**
+     * Write a PHP map, optionally tied to the current discovery build generation.
+     */
+    public static function write(string $file, array $map, ?string $generation = null): void
     {
+        if ($generation !== null) {
+            $map = BuildArtifact::wrap($generation, $map);
+        }
         $expression = (new VarExport(new ScalarExporter(), new ArrayExporter()))->export($map);
         AtomicFileWriter::write($file, "<?php\ndeclare(strict_types=1);\nreturn " . $expression . ";\n");
     }
 
-    public static function read(string $file): ?array
+    /**
+     * Read a trusted PHP map. When a generation is supplied, accept only a
+     * matching versioned artifact and return its payload.
+     */
+    public static function read(string $file, ?string $generation = null): ?array
     {
         clearstatcache(true, $file);
         if (is_link($file) || !is_file($file) || !is_readable($file)) {
@@ -72,8 +83,32 @@ final class PhpMapFile
                     return null;
                 }
             }
-            $map = (static fn (string $file): mixed => require $file)($file);
-            return is_array($map) ? $map : null;
+            $level = ob_get_level();
+            if (!ob_start()) {
+                return null;
+            }
+            try {
+                $map = (static fn (string $file): mixed => require $file)($file);
+                // A malformed file may emit text rather than return a map.
+                // Do not let this corrupt the application response.
+                if (ob_get_level() !== $level + 1 || ob_get_contents() !== '' || !is_array($map)) {
+                    return null;
+                }
+                if ($generation === null) {
+                    return $map;
+                }
+
+                $artifact = BuildArtifact::unwrap($map);
+                return $artifact !== null && $artifact['generation'] === $generation
+                    ? $artifact['payload']
+                    : null;
+            } finally {
+                while (ob_get_level() > $level) {
+                    if (!ob_end_clean()) {
+                        break;
+                    }
+                }
+            }
         } catch (Throwable) {
             return null;
         } finally {
