@@ -101,7 +101,7 @@ it('preserves unrelated files and removes owned temporary files when publication
     $unrelated = $root . '/keep.txt';
     file_put_contents($unrelated, 'keep');
     try {
-        expect(fn () => PhpMapFile::write($file, ['key' => 'value']))->toThrow(Throwable::class);
+        expect(fn () => PhpMapFile::write($file, ['key' => 'value']))->toThrow(ErrorException::class);
         expect(is_dir($file))->toBeTrue()
             ->and(file_get_contents($unrelated))->toBe('keep')
             ->and(scandir($root))->toBe(['.', '..', 'keep.txt', 'map.php']);
