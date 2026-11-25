@@ -28,8 +28,16 @@ final class PhpMapFile
             throw new ErrorException($message, 0, $severity, $file, $line);
         });
         try {
-            if (!unlink($file)) {
-                throw new RuntimeException(sprintf('Cannot remove map "%s".', $file));
+            try {
+                if (!unlink($file)) {
+                    throw new RuntimeException(sprintf('Cannot remove map "%s".', $file));
+                }
+            } catch (ErrorException $error) {
+                clearstatcache(true, $file);
+                if (file_exists($file) || is_link($file)) {
+                    throw $error;
+                }
+                // A concurrent cleanup already removed the owned artifact.
             }
             if (function_exists('opcache_invalidate')) {
                 opcache_invalidate($file, true);
@@ -48,7 +56,18 @@ final class PhpMapFile
 
     public static function read(string $file): ?array
     {
-        if (!is_file($file) || !is_readable($file)) { return null; }
+        clearstatcache(true, $file);
+        if (is_link($file) || !is_file($file) || !is_readable($file)) {
+            return null;
+        }
+        // Executable PHP maps are trusted deployment artifacts, never user data.
+        // Refuse files writable by other POSIX users even when otherwise readable.
+        if (DIRECTORY_SEPARATOR === '/') {
+            $permissions = fileperms($file);
+            if ($permissions === false || ($permissions & 0o022) !== 0) {
+                return null;
+            }
+        }
         set_error_handler(static function (int $severity, string $message, string $file, int $line): never {
             throw new ErrorException($message, 0, $severity, $file, $line);
         });
