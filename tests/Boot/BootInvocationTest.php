@@ -240,3 +240,28 @@ it('runs boot attributes once per discovered declaration and releases temporary 
     expect(BootDiscoveryRetentionFixture::$calls)->toBe(1)
         ->and($reference->get())->toBeNull();
 })->with([true, false]);
+
+
+it('keeps the validated boot map independent of caller-owned reference slots', function (): void {
+    $runner = new class implements BootInvocationRunnerInterface {
+        public array $methods = [];
+        public function run(iterable $invocations): void
+        {
+            foreach ($invocations as $invocation) {
+                $this->methods[] = $invocation->method;
+            }
+        }
+    };
+
+    $first = 'lower';
+    $methods = [&$first, 'higher'];
+    $listener = new BootMethodInvocation($runner, [BootInvocationFixture::class => &$methods]);
+
+    $first = 'higher';
+    $methods = [];
+
+    $listener->handle(new ClassInfo(BootInvocationFixture::class));
+    $listener->finalize();
+
+    expect($runner->methods)->toBe(['lower', 'higher']);
+});

@@ -33,7 +33,7 @@ final class BootMethodInvocation implements
         private readonly BootInvocationRunnerInterface $runner,
         ?array $methodMap = null,
     ) {
-        $this->methodMap = self::validMap($methodMap) ? $methodMap : null;
+        $this->methodMap = self::snapshotMap($methodMap);
     }
 
     public function handle(ClassInfo $info): void
@@ -119,17 +119,33 @@ final class BootMethodInvocation implements
         return $reflection->getMethods(ReflectionMethod::IS_PUBLIC);
     }
 
-    private static function validMap(?array $map): bool
+    /** @return array<class-string, list<non-empty-string>>|null */
+    private static function snapshotMap(?array $map): ?array
     {
-        if ($map === null) { return false; }
+        if ($map === null) {
+            return null;
+        }
+
+        $snapshot = [];
         foreach ($map as $class => $methods) {
-            if (!is_string($class) || $class === '' || !is_array($methods) || !array_is_list($methods)) { return false; }
+            if (!is_string($class) || $class === '' || !is_array($methods) || !array_is_list($methods)) {
+                return null;
+            }
+
+            $names = [];
             $seen = [];
             foreach ($methods as $method) {
-                if (!is_string($method) || $method === '' || isset($seen[strtolower($method)])) { return false; }
+                if (!is_string($method) || $method === '' || isset($seen[strtolower($method)])) {
+                    return null;
+                }
                 $seen[strtolower($method)] = true;
+                $names[] = $method;
             }
+
+            // The map describes a fixed build snapshot, not mutable caller state.
+            $snapshot[$class] = $names;
         }
-        return true;
+
+        return $snapshot;
     }
 }
