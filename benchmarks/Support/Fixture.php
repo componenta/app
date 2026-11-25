@@ -11,6 +11,7 @@ use Componenta\App\Boot\BootloaderInterface;
 use Componenta\App\Boot\BootTargetAdapterInterface;
 use Componenta\App\Boot\ScopedBootloaderSupport;
 use Componenta\App\Build\ApplicationBuildOrchestrator;
+use Componenta\App\Config\AttributeConfigProvider;
 use Componenta\App\Config\ConfigDefinition;
 use Componenta\App\Config\ConfigFactory;
 use Componenta\App\Config\ConfigFactoryResult;
@@ -101,7 +102,7 @@ final class Fixture
 
     public function __construct(public readonly string $root) {}
 
-    public static function create(int $count): self
+    public static function create(int $count, bool $attributeProviders = false): self
     {
         $root = sys_get_temp_dir() . '/componenta-app-phpbench-' . bin2hex(random_bytes(10));
         if (!mkdir($root . '/src', 0700, true)) {
@@ -114,7 +115,12 @@ final class Fixture
                 $method = $i % 20 === 0
                     ? '#[\Componenta\App\Boot\Boot] public static function boot(): void { ++\Componenta\App\Benchmarks\BenchmarkState::$bootCalls; }'
                     : '';
-                if (file_put_contents($root . '/src/' . $name . '.php', '<?php final class ' . $name . ' { ' . $method . ' }') === false) {
+                $attribute = '';
+                if ($attributeProviders && $i % 20 === 0) {
+                    $attribute = '#[\Componenta\App\Config\AsConfig] ';
+                    $method .= ' public function __invoke(): array { return ["bench.discovered" => [self::class]]; }';
+                }
+                if (file_put_contents($root . '/src/' . $name . '.php', '<?php ' . $attribute . 'final class ' . $name . ' { ' . $method . ' }') === false) {
                     throw new RuntimeException('Cannot write benchmark fixture.');
                 }
             }
@@ -158,7 +164,7 @@ final class Fixture
         return (new ContainerFactory())->create($composition->config, $composition->dependencies);
     }
 
-    public function configuration(bool $prepared): ConfigFactoryResult
+    public function configuration(bool $prepared, bool $attributeProviders = false): ConfigFactoryResult
     {
         return ConfigFactory::create(
             new PathResolver($this->root),
@@ -166,6 +172,7 @@ final class Fixture
                 new ConfigProvider(),
                 new \Componenta\ClassFinder\ConfigProvider(),
                 self::runtimeConfig(...),
+                ...($attributeProviders ? [new AttributeConfigProvider()] : []),
             ], new DiscoveryDefinition(['src'])),
             new Environment(['APP_DISCOVERY_SOURCE' => !$prepared, 'BENCH_VALUE' => '42']),
         );

@@ -34,8 +34,9 @@ final class RuntimeBench
     private BootloaderProviderInterface $provider;
     private BootContext $context;
     private BootInvocationRunnerInterface $runner;
+    private BootInvocation $invocation;
 
-    public function setUp(): void
+    public function setUp(array $params = []): void
     {
         $this->container = Fixture::runtimeContainer();
         $this->appFactory = $this->container->get(AppFactoryInterface::class);
@@ -48,6 +49,15 @@ final class RuntimeBench
         );
         $this->provider = $this->container->get(BootloaderProviderInterface::class);
         $this->runner = $this->container->get(BootInvocationRunnerInterface::class);
+        if (isset($params['kind'])) {
+            $value = match ($params['kind']) {
+                'literal' => 42,
+                'entry' => new EntryId('bench.entry'),
+                'config' => new Config('bench.value'),
+                'env' => new Env('BENCH_VALUE'),
+            };
+            $this->invocation = new BootInvocation(BenchmarkState::class, 'invoke', params: ['value' => $value]);
+        }
     }
 
     public function benchResolveApplication(): void
@@ -78,13 +88,7 @@ final class RuntimeBench
     #[Bench\ParamProviders('parameterCases')]
     public function benchBootInvocation(array $params): void
     {
-        $value = match ($params['kind']) {
-            'literal' => 42,
-            'entry' => new EntryId('bench.entry'),
-            'config' => new Config('bench.value'),
-            'env' => new Env('BENCH_VALUE'),
-        };
-        $this->runner->run([new BootInvocation(BenchmarkState::class, 'invoke', params: ['value' => $value])]);
+        $this->runner->run([$this->invocation]);
     }
 
     #[Bench\Revs(100)]
