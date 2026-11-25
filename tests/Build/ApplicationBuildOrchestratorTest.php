@@ -280,3 +280,27 @@ it('preserves completed cleanup and propagates the original failure without clea
 
     expect($artifacts->getArrayCopy())->toBe(['last' => true]);
 });
+
+
+it('replays a generator of builders for repeated build and clean operations', function (): void {
+    $builder = new class implements ApplicationBuilderInterface, ApplicationBuildCleanerInterface {
+        public array $operations = [];
+        public function build(): void { $this->operations[] = 'build'; }
+        public function clean(): void { $this->operations[] = 'clean'; }
+    };
+    $orchestrator = new ApplicationBuildOrchestrator((static function () use ($builder): Generator {
+        yield $builder;
+    })());
+
+    $orchestrator->build();
+    $orchestrator->clean();
+    $orchestrator->build();
+
+    expect($builder->operations)->toBe(['build', 'clean', 'build']);
+});
+
+it('rejects an invalid builder from a direct constructor before executing any builder', function (): void {
+    expect(fn () => new ApplicationBuildOrchestrator((static function (): Generator {
+        yield new stdClass();
+    })()))->toThrow(InvalidArgumentException::class);
+});
