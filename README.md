@@ -192,6 +192,16 @@ Concrete builders receive their artifact paths through their factories using `Pa
 
 Reusable runtime libraries can be used independently; their app packages connect configuration, discovery, builders and startup.
 
-## Performance benchmark
+## Performance benchmarks
 
-Run `php benchmarks/bootstrap.php 500 7` after installing development dependencies. The benchmark measures application configuration, container creation and boot method discovery/execution for the same synthetic declarations in fresh PHP processes, in source and prepared modes. It reports median wall time, autoload counts and peak memory. It is not an HTTP request/TTFB benchmark and uses no timing threshold in CI.
+Install development dependencies and run PHPBench:
+
+```sh
+composer bench
+vendor/bin/phpbench run --filter=StartupBench --report=aggregate
+vendor/bin/phpbench run --filter=RuntimeBench --report=aggregate
+```
+
+The suite measures cold configuration, container creation, discovery, boot discovery and complete startup with 300 and 1,000 declarations in source and prepared modes; build and cleanup; and warm runtime service resolution, boot target creation, bootloader selection, DI boot parameter resolution and the runner without discovery. Fixture preparation and behavioral checks run outside the measured subjects. Prepared artifacts are produced in a separate PHP process using the real builders, so they do not warm the measured process. Cold subjects use one revolution per isolated iteration; warm subjects use repeated revolutions. CLI OPcache and Xdebug are disabled by default. The aggregate report contains time, memory and variation; CI runs a shorter sample without timing thresholds.
+
+Use `vendor/bin/phpbench run --tag=baseline --report=aggregate` to store a baseline and `vendor/bin/phpbench run --ref=baseline --report=aggregate` to compare a subsequent run on the same machine. These synthetic measurements exclude process startup itself and application-specific HTTP I/O; they are not TTFB measurements.

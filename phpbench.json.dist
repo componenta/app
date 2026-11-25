@@ -1,0 +1,10 @@
+{
+    "$schema": "./vendor/phpbench/phpbench/phpbench.schema.json",
+    "runner.bootstrap": "vendor/autoload.php",
+    "runner.path": "benchmarks/subjects",
+    "runner.php_config": {
+        "opcache.enable_cli": "0",
+        "xdebug.mode": "off"
+    },
+    "runner.warmup": 0
+}

@@ -16,7 +16,8 @@
         "psr/container": "^2.0"
     },
     "require-dev": {
-        "pestphp/pest": "^4.0"
+        "pestphp/pest": "^4.0",
+        "phpbench/phpbench": "^1.7"
     },
     "autoload": {
         "files": [
@@ -38,7 +39,8 @@
         }
     },
     "scripts": {
-        "test": "@php vendor/bin/pest"
+        "test": "@php vendor/bin/pest",
+        "bench": "@php vendor/bin/phpbench run --report=aggregate"
     },
     "config": {
         "allow-plugins": {
