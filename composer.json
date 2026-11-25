@@ -33,7 +33,8 @@
     },
     "extra": {
         "branch-alias": {
-            "dev-main": "5.0.x-dev"
+            "dev-main": "6.0.x-dev",
+            "dev-refactor/app-runtime-contracts": "6.0.x-dev"
         },
         "componenta": {
             "config-providers": [
