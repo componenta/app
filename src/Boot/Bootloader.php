@@ -34,12 +34,6 @@ abstract class Bootloader implements BootloaderInterface
 
     public function boot(BootContext $context): void
     {
-        $this->context = $context;
-
-        if (!$this->supports($context)) {
-            return;
-        }
-
         if (!method_exists($this, '__invoke')) {
             throw new LogicException(sprintf(
                 'Bootloader %s must implement __invoke() method',
@@ -47,7 +41,16 @@ abstract class Bootloader implements BootloaderInterface
             ));
         }
 
-        $this->invoker = $this->container->get(CallableInvokerInterface::class, CallableInvokerInterface::class);
-        $this->invoker->call([$this, '__invoke']);
+        if (isset($this->context)) {
+            throw new LogicException('A bootloader cannot be entered recursively.');
+        }
+
+        $this->context = $context;
+        try {
+            $this->invoker = $this->container->get(CallableInvokerInterface::class, CallableInvokerInterface::class);
+            $this->invoker->call([$this, '__invoke']);
+        } finally {
+            unset($this->context, $this->invoker);
+        }
     }
 }

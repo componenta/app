@@ -17,13 +17,14 @@ final class BootloaderProvider implements BootloaderProviderInterface
     public function provideFor(BootContext $context): iterable
     {
         $bootloaders = $context->container->config->get(ConfigKey::BOOTLOADERS, []);
-        if (!is_array($bootloaders)) {
+        if (!is_array($bootloaders) || !array_is_list($bootloaders)) {
             throw new LogicException(sprintf(
                 'Config key "%s" must contain a list of bootloader class-strings.',
                 ConfigKey::BOOTLOADERS,
             ));
         }
 
+        $seen = [];
         foreach ($bootloaders as $bootloader) {
             if (!is_string($bootloader) || !is_a($bootloader, BootloaderInterface::class, true)) {
                 throw new LogicException(sprintf(
@@ -33,8 +34,19 @@ final class BootloaderProvider implements BootloaderProviderInterface
                 ));
             }
 
-            $instance = $context->container->get($bootloader, BootloaderInterface::class);
+            $key = strtolower(ltrim($bootloader, '\\'));
+            if (isset($seen[$key])) {
+                throw new LogicException(sprintf('Duplicate bootloader registration "%s".', $bootloader));
+            }
+            $seen[$key] = true;
+        }
 
+        $instances = [];
+        foreach ($bootloaders as $bootloader) {
+            $instances[] = $context->container->get($bootloader, BootloaderInterface::class);
+        }
+
+        foreach ($instances as $instance) {
             if (!$instance->supports($context)) {
                 continue;
             }

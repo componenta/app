@@ -17,6 +17,7 @@ use Componenta\Scope\ScopedInterface;
  */
 interface BootloaderInterface extends ScopedInterface
 {
+    /** Execute an already selected bootloader; direct callers must check supports() first. */
     public function boot(BootContext $context): void;
 
     public function supports(BootContext $context): bool;

@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Componenta\App\Boot;
 
 interface BootloaderProviderInterface
@@ -7,5 +9,5 @@ interface BootloaderProviderInterface
     /**
      * @return iterable<BootloaderInterface>
      */
-    public function provideFor(BootContext $context): iterable ;
+    public function provideFor(BootContext $context): iterable;
 }
