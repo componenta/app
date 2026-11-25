@@ -28,7 +28,14 @@ final readonly class AttributeConfigProvider implements DiscoveryAwareConfigProv
             return;
         }
 
+        $seen = [];
         foreach ($this->discovered as $class) {
+            $key = strtolower(ltrim($class->fullyQualifiedName, '\\'));
+            if (isset($seen[$key])) {
+                continue;
+            }
+            $seen[$key] = true;
+
             if (!Reflection::hasMetadata($class->reflector, AsConfig::class)) {
                 continue;
             }

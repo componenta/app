@@ -45,3 +45,20 @@ describe('AttributeConfigProvider', function () {
             ]]);
     });
 });
+
+
+it('invokes a discovered configuration class once even when the declaration is encountered repeatedly', function (): void {
+    $classes = new ClassIterator([
+        'first.php' => new ClassInfo(AttributeConfigProviderTestConfig::class),
+        'second.php' => new ClassInfo(strtolower(AttributeConfigProviderTestConfig::class)),
+    ]);
+
+    $provider = (new AttributeConfigProvider())->withDiscovered($classes);
+    expect(iterator_to_array($provider(), false))->toBe([
+        ['attribute-provider-test' => ['loaded' => true]],
+    ]);
+    // A separate invocation is a separate composition, not a cached result.
+    expect(iterator_to_array($provider(), false))->toBe([
+        ['attribute-provider-test' => ['loaded' => true]],
+    ]);
+});
