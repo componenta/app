@@ -318,6 +318,7 @@ it('can recover using source discovery explicitly even when a prepared map still
     $root = appConfigFactoryRoot('forced_source');
     file_put_contents($root . '/src/Old.php', '<?php final class ForcedSourceOld {}');
     try {
+        require $root . '/src/Old.php';
         $paths = new \Componenta\Stdlib\PathResolver($root);
         $definition = new \Componenta\App\Config\ConfigDefinition(
             providers: [new \Componenta\App\ConfigProvider()],

@@ -26,11 +26,6 @@
             "Componenta\\App\\": "src/"
         }
     },
-    "autoload-dev": {
-        "psr-4": {
-            "Componenta\\App\\Tests\\": "tests/"
-        }
-    },
     "extra": {
         "branch-alias": {
             "dev-main": "6.0.x-dev",
