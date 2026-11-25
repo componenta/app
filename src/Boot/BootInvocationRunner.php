@@ -10,20 +10,21 @@ use Componenta\DI\Attribute\Config as ConfigAttr;
 use Componenta\DI\Attribute\EntryId;
 use Componenta\DI\Attribute\Env;
 use Componenta\DI\CallableExecutorInterface;
+use Componenta\Reflection\Reflection;
+use LogicException;
 use OutOfBoundsException;
 use Psr\Container\ContainerInterface;
+use ReflectionNamedType;
+use ReflectionParameter;
 use RuntimeException;
 
-/**
- * Runs boot invocations with the same parameter semantics as DI attributes.
- */
+/** Resolves explicit boot metadata before delegating invocation to DI. */
 final readonly class BootInvocationRunner implements BootInvocationRunnerInterface
 {
     public function __construct(
         private ContainerInterface $container,
         private CallableExecutorInterface $executor,
-    ) {
-    }
+    ) {}
 
     public function run(iterable $invocations): void
     {
@@ -35,50 +36,63 @@ final readonly class BootInvocationRunner implements BootInvocationRunnerInterfa
         );
 
         foreach ($ordered as $invocation) {
-            $this->executor->call(
-                [$invocation->class, $invocation->method],
-                $this->resolveParams($invocation->params),
-            );
+            $callable = [$invocation->class, $invocation->method];
+            $params = $invocation->params;
+            $targets = null;
+
+            foreach ($params as $key => $value) {
+                if ($value instanceof EntryId) {
+                    $params[$key] = $this->container->get($value->value);
+                    continue;
+                }
+                if (!$value instanceof Env && !$value instanceof ConfigAttr) {
+                    continue;
+                }
+
+                if ($targets === null) {
+                    // Resolve the actual callable once, including DI-provided
+                    // instance methods. Plain values need no extra reflection.
+                    $callable = $this->executor->resolve($callable);
+                    $targets = Reflection::callable($callable)->getParameters();
+                }
+                $parameter = self::target($targets, $key);
+                $params[$key] = $value instanceof Env
+                    ? $this->resolveEnvParam($value, $parameter, is_string($key))
+                    : $this->config()->get($value->path ?? $parameter->getName(), $value->default);
+            }
+
+            $this->executor->call($callable, $params);
         }
     }
 
-    /**
-     * @param array<string|int, mixed> $params
-     *
-     * @return array<string|int, mixed>
-     */
-    private function resolveParams(array $params): array
+    /** @param list<ReflectionParameter> $parameters */
+    private static function target(array $parameters, string|int $key): ReflectionParameter
     {
-        foreach ($params as $name => $value) {
-            $params[$name] = match (true) {
-                $value instanceof EntryId => $this->container->get($value->value),
-                $value instanceof ConfigAttr => $this->resolveConfigParam($value, (string) $name),
-                $value instanceof Env => $this->resolveEnvParam($value, (string) $name),
-                default => $value,
-            };
+        foreach ($parameters as $parameter) {
+            if ($key === $parameter->getName() || $key === $parameter->getPosition()) {
+                return $parameter;
+            }
+            if ($parameter->isVariadic() && is_int($key) && $key >= $parameter->getPosition()) {
+                return $parameter;
+            }
         }
 
-        return $params;
+        throw new LogicException(sprintf('No boot parameter corresponds to "%s".', (string) $key));
     }
 
-    private function resolveConfigParam(ConfigAttr $attribute, string $name): mixed
+    private function config(): Config
     {
         $config = $this->container->get(Config::class);
         if (!$config instanceof Config) {
             throw new RuntimeException(sprintf('Container entry %s must be %s.', Config::class, Config::class));
         }
-
-        return $config->get($attribute->path ?? $name, $attribute->default);
+        return $config;
     }
 
-    private function resolveEnvParam(Env $attribute, string $name): mixed
+    private function resolveEnvParam(Env $attribute, ReflectionParameter $parameter, bool $named): mixed
     {
-        $config = $this->container->get(Config::class);
-        if (!$config instanceof Config) {
-            throw new RuntimeException(sprintf('Container entry %s must be %s.', Config::class, Config::class));
-        }
-
-        $environment = $config->environment;
+        $environment = $this->config()->environment;
+        $name = $parameter->getName();
         $envName = $attribute->name ?? strtoupper(
             preg_replace('/([a-z])([A-Z])/', '$1_$2', $name) ?? $name,
         );
@@ -91,6 +105,20 @@ final readonly class BootInvocationRunner implements BootInvocationRunnerInterfa
             throw new OutOfBoundsException("Environment variable '$envName' is not defined");
         }
 
-        return $environment->get($envName);
+        $type = $parameter->getType();
+        // A named variadic entry is a collection; positional entries are
+        // individual arguments, matching DI's explicit-parameter contract.
+        $typeName = $parameter->isVariadic() && $named
+            ? 'array'
+            : ($type instanceof ReflectionNamedType ? $type->getName() : null);
+
+        return match ($typeName) {
+            'string' => $environment->string($envName),
+            'int' => $environment->int($envName),
+            'float' => $environment->float($envName),
+            'bool' => $environment->bool($envName),
+            'array' => $environment->array($envName),
+            default => $environment->get($envName),
+        };
     }
 }

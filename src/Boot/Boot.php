@@ -10,7 +10,7 @@ use Attribute;
 final readonly class Boot
 {
     /**
-     * @param array<string, mixed> $params
+     * @param array<string|int, mixed> $params
      */
     public function __construct(
         public int $priority = 0,

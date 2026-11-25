@@ -139,3 +139,29 @@ it('rejects new boot invocations after finalization has started, including on fa
         ->toThrow(\Componenta\ClassFinder\Exception\ListenerAlreadyFinalizedException::class);
     expect($runner->calls)->toBe(1);
 })->with([true, false]);
+
+
+final class BootTypedParameterFixture
+{
+    public static array $values = [];
+
+    public static function boot(bool $enabled, int $count, float $rate, string $label, int ...$ids): void
+    {
+        self::$values = [$enabled, $count, $rate, $label, $ids];
+    }
+}
+
+it('resolves boot metadata with the same scalar and variadic conversions as DI', function (): void {
+    $config = new Config(['label' => 'ready'], new Environment([
+        'ENABLED' => 'false', 'COUNT' => '42', 'RATE' => '2.5', 'IDS' => [1, 2],
+    ]));
+    $container = (new \Componenta\DI\ContainerFactory())->create($config, new \Componenta\Config\DependencyDefinitions([]));
+    $runner = new BootInvocationRunner($container, $container->get(CallableExecutorInterface::class));
+    $runner->run([new \Componenta\App\Boot\BootInvocation(
+        class: BootTypedParameterFixture::class,
+        method: 'boot',
+        params: [0 => new Env(), 'count' => new Env(), 'rate' => new Env(), 'label' => new ConfigAttr(), 'ids' => new Env()],
+    )]);
+
+    expect(BootTypedParameterFixture::$values)->toBe([false, 42, 2.5, 'ready', [1, 2]]);
+});
