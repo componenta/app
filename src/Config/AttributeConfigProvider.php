@@ -40,46 +40,43 @@ final readonly class AttributeConfigProvider implements DiscoveryAwareConfigProv
                 continue;
             }
 
+            $reflection = $class->reflector;
             try {
-                $provider = $class->reflector->newInstance();
+                $provider = $reflection->newInstance();
                 if (!is_callable($provider)) {
-                    throw new ConfigException(sprintf(
-                        'Config provider %s must be callable.',
-                        $class->reflector->getName(),
-                    ));
+                    throw new ConfigException('Config provider must be callable.');
                 }
 
                 $provided = $provider();
-            } catch (Throwable $e) {
-                throw new ConfigException(
-                    sprintf('Failed to load config from %s: %s', $class->reflector->getName(), $e->getMessage()),
-                    previous: $e,
-                );
-            }
+                if (is_array($provided)) {
+                    yield $provided;
+                    continue;
+                }
 
-            if (is_array($provided)) {
-                yield $provided;
-                continue;
-            }
-
-            if (!is_iterable($provided)) {
-                throw new ConfigException(sprintf(
-                    'Config provider %s must return array or iterable, %s given',
-                    $class->reflector->getName(),
-                    get_debug_type($provided),
-                ));
-            }
-
-            foreach ($provided as $contribution) {
-                if (!is_array($contribution)) {
+                if (!is_iterable($provided)) {
                     throw new ConfigException(sprintf(
-                        'Config contribution from %s must be an array, %s given',
-                        $class->reflector->getName(),
-                        get_debug_type($contribution),
+                        'Config provider must return array or iterable, %s given.',
+                        get_debug_type($provided),
                     ));
                 }
 
-                yield $contribution;
+                // Iterating a lazy provider is part of invoking it. Keep
+                // the same diagnostic boundary for eager and deferred errors.
+                foreach ($provided as $contribution) {
+                    if (!is_array($contribution)) {
+                        throw new ConfigException(sprintf(
+                            'Config contribution must be an array, %s given.',
+                            get_debug_type($contribution),
+                        ));
+                    }
+
+                    yield $contribution;
+                }
+            } catch (Throwable $e) {
+                throw new ConfigException(
+                    sprintf('Failed to load config from %s: %s', $reflection->getName(), $e->getMessage()),
+                    previous: $e,
+                );
             }
         }
     }

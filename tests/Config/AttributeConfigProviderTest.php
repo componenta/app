@@ -62,3 +62,44 @@ it('invokes a discovered configuration class once even when the declaration is e
         ['attribute-provider-test' => ['loaded' => true]],
     ]);
 });
+
+
+#[AsConfig]
+final class AttributeConfigDeferredFailure
+{
+    public static ?DomainException $failure = null;
+    public static bool $afterContribution = false;
+
+    public function __invoke(): iterable
+    {
+        if (self::$afterContribution) {
+            yield ['first' => true];
+        }
+        throw self::$failure ?? new DomainException('Deferred configuration failure');
+    }
+}
+
+it('reports the discovered provider and preserves the original failure during deferred iteration', function (bool $afterContribution): void {
+    $failure = new DomainException('Deferred configuration failure');
+    AttributeConfigDeferredFailure::$failure = $failure;
+    AttributeConfigDeferredFailure::$afterContribution = $afterContribution;
+    try {
+        $provider = new AttributeConfigProvider(new ClassIterator([
+            new ClassInfo(AttributeConfigDeferredFailure::class),
+        ]));
+        $contributions = [];
+        try {
+            foreach ($provider() as $contribution) {
+                $contributions[] = $contribution;
+            }
+            test()->fail('The deferred failure must propagate.');
+        } catch (\Componenta\Config\Exception\ConfigException $error) {
+            expect($error->getMessage())->toContain(AttributeConfigDeferredFailure::class)
+                ->and($error->getPrevious())->toBe($failure)
+                ->and($contributions)->toBe($afterContribution ? [['first' => true]] : []);
+        }
+    } finally {
+        AttributeConfigDeferredFailure::$failure = null;
+        AttributeConfigDeferredFailure::$afterContribution = false;
+    }
+})->with([false, true]);
