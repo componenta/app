@@ -304,3 +304,35 @@ it('rejects an invalid builder from a direct constructor before executing any bu
         yield new stdClass();
     })()))->toThrow(InvalidArgumentException::class);
 });
+
+
+it('rejects multiple builder service IDs resolving to the same instance before any build or cleanup', function (): void {
+    $builder = new class implements ApplicationBuilderInterface, ApplicationBuildCleanerInterface {
+        public int $operations = 0;
+        public function build(): void { ++$this->operations; }
+        public function clean(): void { ++$this->operations; }
+    };
+    $container = applicationBuildTestContainer(static fn (): array => [
+        AppConfigKey::BUILDERS => ['first.builder', 'second.builder'],
+        ConfigKey::DEPENDENCIES => [
+            ConfigKey::SERVICES => ['first.builder' => $builder, 'second.builder' => $builder],
+        ],
+    ]);
+
+    expect(fn () => (new ApplicationBuildOrchestratorFactory())($container))
+        ->toThrow(InvalidArgumentException::class, 'same application builder instance');
+    expect(fn () => new ApplicationBuildOrchestrator([$builder, $builder]))
+        ->toThrow(InvalidArgumentException::class, 'same application builder instance');
+    expect($builder->operations)->toBe(0);
+});
+
+it('allows distinct instances of the same builder class to represent independent build targets', function (): void {
+    $make = static fn () => new class implements ApplicationBuilderInterface {
+        public int $calls = 0;
+        public function build(): void { ++$this->calls; }
+    };
+    $first = $make();
+    $second = $make();
+    (new ApplicationBuildOrchestrator([$first, $second]))->build();
+    expect($first->calls)->toBe(1)->and($second->calls)->toBe(1);
+});

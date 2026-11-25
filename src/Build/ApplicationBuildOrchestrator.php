@@ -13,10 +13,16 @@ final readonly class ApplicationBuildOrchestrator
     public function __construct(iterable $builders)
     {
         $items = [];
+        $seen = [];
         foreach ($builders as $builder) {
             if (!$builder instanceof ApplicationBuilderInterface) {
                 throw new \InvalidArgumentException('Each application builder must implement ApplicationBuilderInterface.');
             }
+            $identity = spl_object_id($builder);
+            if (isset($seen[$identity])) {
+                throw new \InvalidArgumentException('The same application builder instance cannot be registered twice.');
+            }
+            $seen[$identity] = true;
             $items[] = $builder;
         }
         $this->builders = $items;
