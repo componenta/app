@@ -105,8 +105,7 @@ describe('boot invocations', function (): void {
         expect(BootInvocationFixture::$calls)->toBe([
             'higher:service-value:config-value:env-value',
             'lower',
-        ])->and($listener->finalized)->toBeTrue()
-            ->and($listener->bootInvocations)->toHaveCount(2);
+        ])->and($listener->finalized)->toBeTrue();
     });
 
 });
@@ -164,4 +163,37 @@ it('resolves boot metadata with the same scalar and variadic conversions as DI',
     )]);
 
     expect(BootTypedParameterFixture::$values)->toBe([false, 42, 2.5, 'ready', [1, 2]]);
+});
+
+
+it('does not autoload declarations without boot methods when using prepared metadata', function (): void {
+    $class = 'PreparedBootEmptyFixture';
+    $loads = 0;
+    $autoload = static function (string $requested) use ($class, &$loads): void {
+        if ($requested === $class) {
+            ++$loads;
+            class PreparedBootEmptyFixture {}
+        }
+    };
+    $runner = new class implements BootInvocationRunnerInterface {
+        public array $calls = [];
+        public function run(iterable $invocations): void
+        {
+            foreach ($invocations as $invocation) { $this->calls[] = $invocation; }
+        }
+    };
+    spl_autoload_register($autoload);
+    try {
+        $prepared = new BootMethodInvocation($runner, [$class => []]);
+        $prepared->handle(new ClassInfo($class));
+        $prepared->finalize();
+        expect($loads)->toBe(0)->and($runner->calls)->toBe([]);
+
+        $source = new BootMethodInvocation($runner);
+        $source->handle(new ClassInfo($class));
+        $source->finalize();
+        expect($loads)->toBe(1)->and($runner->calls)->toBe([]);
+    } finally {
+        spl_autoload_unregister($autoload);
+    }
 });

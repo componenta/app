@@ -15,8 +15,7 @@ use ReflectionMethod;
 #[ListenTo(Boot::class, deepSearch: true)]
 final class BootMethodInvocation implements
     FinalizableListenerInterface,
-    FinalizationStateInterface,
-    BootInvocationProviderInterface
+    FinalizationStateInterface
 {
     /** @var list<BootInvocation> */
     private array $invocations = [];
@@ -26,10 +25,6 @@ final class BootMethodInvocation implements
 
     public bool $finalized {
         get => $this->isFinalized;
-    }
-
-    public array $bootInvocations {
-        get => $this->invocations;
     }
 
     public function __construct(
@@ -43,6 +38,11 @@ final class BootMethodInvocation implements
     {
         if ($this->isFinalized) {
             throw ListenerAlreadyFinalizedException::forListener(self::class);
+        }
+
+        // A prepared entry with no boot methods needs neither autoload nor reflection.
+        if (($this->methodMap[$info->fullyQualifiedName] ?? null) === []) {
+            return;
         }
 
         $extracted = $this->extract($info->reflector);

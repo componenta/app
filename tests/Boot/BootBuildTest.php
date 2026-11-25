@@ -87,9 +87,9 @@ it('builds boot metadata without instantiating attributes and preserves native i
 
         foreach ([
             '<?php return false;',
-            '<?php return ["BootBuildChild" => [false]];',
-            '<?php return ["BootBuildChild" => ["start", "start"]];',
-            '<?php return ["BootBuildChild" => ["missingMethod"]];',
+            '<?php return ' . var_export(array_replace($currentMap, ['payload' => ['BootBuildChild' => [false]]]), true) . ';',
+            '<?php return ' . var_export(array_replace($currentMap, ['payload' => ['BootBuildChild' => ['start', 'start']]]), true) . ';',
+            '<?php return ' . var_export(array_replace($currentMap, ['payload' => ['BootBuildChild' => ['missingMethod']]]), true) . ';',
             '<?php return [;',
             '<?php throw new LogicException("Invalid map");',
         ] as $invalidMap) {

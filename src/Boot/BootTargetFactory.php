@@ -47,7 +47,7 @@ final readonly class BootTargetFactory implements BootTargetFactoryInterface
     {
         $adapters = $this->container->config->get(ConfigKey::BOOT_TARGET_ADAPTERS, []);
 
-        if (!is_array($adapters)) {
+        if (!is_array($adapters) || !array_is_list($adapters)) {
             throw new LogicException(sprintf(
                 'Config key "%s" must contain a list of boot target adapter class-strings.',
                 ConfigKey::BOOT_TARGET_ADAPTERS,
@@ -64,6 +64,6 @@ final readonly class BootTargetFactory implements BootTargetFactoryInterface
             }
         }
 
-        return array_values($adapters);
+        return $adapters;
     }
 }
