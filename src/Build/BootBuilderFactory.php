@@ -16,6 +16,7 @@ final class BootBuilderFactory
         return new BootBuilder(
             $container->get(ConfigKey::DISCOVERY_SOURCE, ClassIteratorInterface::class),
             $container->get(PathResolverInterface::class, PathResolverInterface::class)->resolve(ConfigKey::BOOT_MAP_FILE),
+            $container->get(ConfigKey::BUILD_GENERATION),
         );
     }
 }

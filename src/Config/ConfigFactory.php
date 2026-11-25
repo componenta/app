@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Componenta\App\Config;
 
 use Closure;
+use Componenta\App\Build\PhpMapFile;
+use Componenta\App\Internal\BuildArtifact;
 use Componenta\ClassFinder\ClassFinder;
 use Componenta\ClassFinder\ClassIterator;
 use Componenta\ClassFinder\ClassIteratorInterface;
@@ -13,7 +15,6 @@ use Componenta\Config\ConfigKey;
 use Componenta\Config\Environment;
 use Componenta\Config\Loader\EnvLoader;
 use Componenta\Stdlib\PathResolverInterface;
-use ErrorException;
 use RuntimeException;
 
 final class ConfigFactory
@@ -34,14 +35,17 @@ final class ConfigFactory
         $definition = self::definition($definition);
         $source = null;
         $discovered = null;
-        $prepared = false;
+        $generation = null;
         if ($definition->discovery !== null) {
             $createSource = static fn (): ClassIteratorInterface => (new ClassFinder())->find(
                 self::resolveDirectories($paths, $definition->discovery->directories),
                 $definition->discovery->exclude,
             );
-            $discovered = self::preparedDiscovery($paths);
-            $prepared = $discovered !== null;
+            $prepared = $environment->bool('APP_DISCOVERY_SOURCE', false)
+                ? null
+                : self::preparedDiscovery($paths);
+            $discovered = $prepared['iterator'] ?? null;
+            $generation = $prepared['generation'] ?? null;
             if ($discovered === null) {
                 $source = $discovered = $createSource();
             } else {
@@ -49,7 +53,7 @@ final class ConfigFactory
             }
         }
         $providers = self::providers($definition, $discovered);
-        $providers[] = self::runtimeServices($paths, $discovered, $source, $prepared);
+        $providers[] = self::runtimeServices($paths, $discovered, $source, $generation);
         $composition = (new RuntimeConfigFactory())->create($environment, ...$providers);
 
         return new ConfigFactoryResult(
@@ -119,15 +123,19 @@ final class ConfigFactory
         PathResolverInterface $paths,
         ?ClassIteratorInterface $discovered,
         ClassIteratorInterface|Closure|null $source,
-        bool $prepared,
+        ?string $generation,
     ): callable {
-        return static function () use ($paths, $discovered, $source, $prepared): array {
+        return static function () use ($paths, $discovered, $source, $generation): array {
             $services = [
                 PathResolverInterface::class => $paths,
-                \Componenta\App\ConfigKey::DISCOVERY_PREPARED => $prepared,
+                \Componenta\App\ConfigKey::DISCOVERY_PREPARED => $generation !== null,
             ];
             $factories = [];
+            if ($generation !== null) {
+                $services[\Componenta\App\ConfigKey::DISCOVERY_GENERATION] = $generation;
+            }
             if ($discovered !== null) {
+                $factories[\Componenta\App\ConfigKey::BUILD_GENERATION] = BuildArtifact::newGeneration(...);
                 $services[ClassIteratorInterface::class] = $discovered;
                 if ($source instanceof Closure) {
                     $factories[\Componenta\App\ConfigKey::DISCOVERY_SOURCE] = $source;
@@ -145,24 +153,22 @@ final class ConfigFactory
         };
     }
 
-    private static function preparedDiscovery(PathResolverInterface $paths): ?ClassIteratorInterface
+    /** @return array{iterator: ClassIteratorInterface, generation: string}|null */
+    private static function preparedDiscovery(PathResolverInterface $paths): ?array
     {
         $file = $paths->resolve(\Componenta\App\ConfigKey::DISCOVERY_MAP_FILE);
-        if (!is_file($file) || !is_readable($file)) {
+        $artifact = BuildArtifact::unwrap(PhpMapFile::read($file));
+        if ($artifact === null) {
             return null;
         }
 
-        set_error_handler(static function (int $severity, string $message, string $file, int $line): never {
-            throw new ErrorException($message, 0, $severity, $file, $line);
-        });
         try {
-            $map = (static fn (string $file): mixed => require $file)($file);
-            return is_array($map) ? ClassIterator::fromMap($map) : null;
+            return [
+                'iterator' => ClassIterator::fromMap($artifact['payload']),
+                'generation' => $artifact['generation'],
+            ];
         } catch (\Throwable) {
-            // An incomplete or incompatible artifact leaves ordinary discovery available.
             return null;
-        } finally {
-            restore_error_handler();
         }
     }
 

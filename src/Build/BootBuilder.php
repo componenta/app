@@ -5,12 +5,17 @@ declare(strict_types=1);
 namespace Componenta\App\Build;
 
 use Componenta\App\Boot\Boot;
+use Componenta\App\Internal\BuildArtifact;
 use Componenta\ClassFinder\ClassIteratorInterface;
 use ReflectionMethod;
 
 final readonly class BootBuilder implements ApplicationBuilderInterface, ApplicationBuildCleanerInterface
 {
-    public function __construct(private ClassIteratorInterface $classes, private string $file) {}
+    public function __construct(
+        private ClassIteratorInterface $classes,
+        private string $file,
+        private ?string $generation = null,
+    ) {}
 
     public function clean(): void
     {
@@ -27,6 +32,9 @@ final readonly class BootBuilder implements ApplicationBuilderInterface, Applica
             }
             $map[$class->fullyQualifiedName] = $methods;
         }
-        PhpMapFile::write($this->file, $map);
+        PhpMapFile::write($this->file, BuildArtifact::wrap(
+            $this->generation ?? BuildArtifact::newGeneration(),
+            $map,
+        ));
     }
 }

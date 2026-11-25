@@ -312,3 +312,33 @@ it('lets the application override the builder list contributed by the App provid
         removeAppConfigFactoryRoot($root);
     }
 });
+
+
+it('can recover using source discovery explicitly even when a prepared map still exists', function (): void {
+    $root = appConfigFactoryRoot('forced_source');
+    file_put_contents($root . '/src/Old.php', '<?php final class ForcedSourceOld {}');
+    try {
+        $paths = new \Componenta\Stdlib\PathResolver($root);
+        $definition = new \Componenta\App\Config\ConfigDefinition(
+            providers: [new \Componenta\App\ConfigProvider()],
+            discovery: new \Componenta\App\Config\DiscoveryDefinition(['src']),
+        );
+        $initial = \Componenta\App\Config\ConfigFactory::create($paths, $definition, new \Componenta\Config\Environment([]));
+        $container = (new \Componenta\DI\ContainerFactory())->create($initial->config, $initial->dependencies);
+        $container->get(\Componenta\App\Build\ApplicationBuildOrchestrator::class)->build();
+        unlink($root . '/src/Old.php');
+        file_put_contents($root . '/src/New.php', '<?php final class ForcedSourceNew {}');
+
+        $recovered = \Componenta\App\Config\ConfigFactory::create(
+            $paths, $definition, new \Componenta\Config\Environment(['APP_DISCOVERY_SOURCE' => '1']),
+        );
+        expect(array_map(static fn (\Componenta\Tokenizer\ClassInfo $info): string => $info->fullyQualifiedName, $recovered->discovered->toArray()))
+            ->toBe(['ForcedSourceNew']);
+        $recoveredContainer = (new \Componenta\DI\ContainerFactory())->create($recovered->config, $recovered->dependencies);
+        expect($recoveredContainer->get(\Componenta\App\ConfigKey::DISCOVERY_PREPARED))->toBeFalse();
+    } finally {
+        $entries = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST);
+        foreach ($entries as $entry) { $entry->isDir() ? rmdir($entry->getPathname()) : unlink($entry->getPathname()); }
+        rmdir($root);
+    }
+});

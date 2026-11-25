@@ -32,6 +32,12 @@ class ConfigKey extends \Componenta\Config\ConfigKey
     /** DI service indicating that runtime discovery came from a valid map. */
     public const string DISCOVERY_PREPARED = 'app.discovery.prepared';
 
+    /** Generation of the selected prepared discovery map. */
+    public const string DISCOVERY_GENERATION = 'app.discovery.generation';
+
+    /** Shared generation for the fresh source snapshot used by builders. */
+    public const string BUILD_GENERATION = 'app.build.generation';
+
     public const string BOOT_MAP_FILE = 'var/cache/build/boot.php';
 
     /**

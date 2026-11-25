@@ -18,6 +18,7 @@ final class DiscoveryBuilderFactory
         return new DiscoveryBuilder(
             $container->get(ConfigKey::DISCOVERY_SOURCE, ClassIteratorInterface::class),
             $paths->resolve(ConfigKey::DISCOVERY_MAP_FILE),
+            $container->get(ConfigKey::BUILD_GENERATION),
         );
     }
 }

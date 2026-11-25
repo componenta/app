@@ -30,7 +30,7 @@ it('replays every declaration with its file and modifiers without reading source
         unlink($sourceFile);
         rmdir($root . '/src');
 
-        $iterator = ClassIterator::fromMap(require $artifact);
+        $iterator = ClassIterator::fromMap((require $artifact)['payload']);
         $rows = static function () use ($iterator): array {
             $rows = [];
             foreach ($iterator as $path => $class) {

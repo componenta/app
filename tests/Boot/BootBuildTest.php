@@ -79,6 +79,12 @@ it('builds boot metadata without instantiating attributes and preserves native i
             expect($caught)->toBe($failure);
         } finally { BootBuildValue::$failure = null; }
 
+        // A structurally valid map from another build must not suppress boot methods.
+        $currentMap = require $root . '/var/cache/build/boot.php';
+        $oldMap = ['version' => $currentMap['version'], 'generation' => str_repeat('f', 32), 'payload' => ['BootBuildChild' => []]];
+        file_put_contents($root . '/var/cache/build/boot.php', '<?php return ' . var_export($oldMap, true) . ';');
+        expect($boot($load('mixed-generation')))->toBe(['mixed-generation:1', 'second:1', 'inherited']);
+
         foreach ([
             '<?php return false;',
             '<?php return ["BootBuildChild" => [false]];',
