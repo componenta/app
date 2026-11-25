@@ -90,7 +90,7 @@ return new class implements ContainerInterface {
             BootTargetFactoryInterface::class => new class implements BootTargetFactoryInterface {
                 public function create(AppInterface $app, ScopeInterface $scope): object
                 {
-                    return $app;
+                    return new stdClass();
                 }
             },
             BootloaderProviderInterface::class => new class implements BootloaderProviderInterface {

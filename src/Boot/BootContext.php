@@ -4,31 +4,31 @@ declare(strict_types=1);
 
 namespace Componenta\App\Boot;
 
+use Componenta\App\AppInterface;
 use Componenta\Config\ContainerValue;
 use Componenta\Scope\ScopeInterface;
 use LogicException;
 
 /**
- * Runtime context handed to bootloaders during the boot phase.
- *
- * Carries the container value, active scope, and boot target while excluding
- * the application's run entry-point - that belongs to {@see \Componenta\App\Runner}
- * and is structurally unreachable through this object.
+ * Runtime context for trusted bootloaders. The target exposes configuration
+ * capabilities only; a runnable application must never be passed as a target.
+ * The application container is not a security sandbox.
  */
 final readonly class BootContext
 {
     public function __construct(
         public ContainerValue $container,
         public ScopeInterface $scope,
-        public object $target,
+        private object $target,
     ) {
+        if ($target instanceof AppInterface) {
+            throw new LogicException('A runnable application cannot be used as a boot target.');
+        }
     }
 
     /**
      * @template T of object
-     *
      * @param class-string<T> $contract
-     *
      * @return T
      */
     public function target(string $contract): object

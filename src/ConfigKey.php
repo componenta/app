@@ -43,11 +43,8 @@ class ConfigKey extends \Componenta\Config\ConfigKey
      */
     public const string BOOTLOADERS = 'bootloaders';
 
-    /**
-     * Ordered list of app adapter class-strings. Runtime integration packages
-     * append their adapters here instead of replacing the base app factory.
-     */
-    public const string APP_ADAPTERS = 'app.adapters';
+    /** Map of scope values to application service IDs. */
+    public const string APPLICATIONS = 'app.applications';
 
     /**
      * Ordered list of boot target adapter class-strings. Each adapter wraps an

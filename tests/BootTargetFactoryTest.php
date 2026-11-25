@@ -140,7 +140,6 @@ describe('boot target factory', function () {
             ->and($targetFactory->app)->toBe($app)
             ->and($targetFactory->scope)->toBe(Scope::HTTP)
             ->and($provider->context)->toBeInstanceOf(BootContext::class)
-            ->and($provider->context?->target)->toBe($target)
             ->and($provider->context?->target(RunnerBootTargetMarker::class))->toBe($target)
             ->and($bootloader->context)->toBe($provider->context)
             ->and($app->ran)->toBeTrue();

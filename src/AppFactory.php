@@ -7,57 +7,34 @@ namespace Componenta\App;
 use Componenta\Config\ContainerValue;
 use Componenta\Scope\ScopeInterface;
 use LogicException;
-use Psr\Container\ContainerExceptionInterface;
-use Psr\Container\NotFoundExceptionInterface;
 
 final class AppFactory implements AppFactoryInterface
 {
-    /**
-     * @throws ContainerExceptionInterface
-     * @throws NotFoundExceptionInterface
-     */
     public function createApp(ScopeInterface $scope, ContainerValue $container): AppInterface
     {
-        foreach ($this->adapters($container) as $adapterClass) {
-            $adapter = $container->get($adapterClass, AppAdapterInterface::class);
+        $applications = $container->config->get(ConfigKey::APPLICATIONS, []);
 
-            if (!$adapter->supports($scope)) {
-                continue;
-            }
-
-            return $adapter->createApp($scope, $container);
-        }
-
-        throw new LogicException(sprintf(
-            'Unknown scope "%s" - no matching App adapter.',
-            $scope->value,
-        ));
-    }
-
-    /**
-     * @return list<class-string<AppAdapterInterface>>
-     */
-    private function adapters(ContainerValue $container): array
-    {
-        $adapters = $container->config->get(ConfigKey::APP_ADAPTERS, []);
-
-        if (!is_array($adapters)) {
+        if (!is_array($applications)) {
             throw new LogicException(sprintf(
-                'Config key "%s" must contain a list of app adapter class-strings.',
-                ConfigKey::APP_ADAPTERS,
+                'Config key "%s" must map scope values to application service IDs.',
+                ConfigKey::APPLICATIONS,
             ));
         }
 
-        foreach ($adapters as $adapter) {
-            if (!is_string($adapter) || !is_a($adapter, AppAdapterInterface::class, true)) {
+        foreach ($applications as $value => $id) {
+            if (trim((string) $value) === '' || !is_string($id) || trim($id) === '') {
                 throw new LogicException(sprintf(
-                    'App adapter entry must be a class-string implementing %s, %s given.',
-                    AppAdapterInterface::class,
-                    is_string($adapter) ? $adapter : get_debug_type($adapter),
+                    'Config key "%s" must map non-empty scope values to non-empty application service IDs.',
+                    ConfigKey::APPLICATIONS,
                 ));
             }
         }
 
-        return array_values($adapters);
+        $id = $applications[$scope->value] ?? throw new LogicException(sprintf(
+            'Unknown scope "%s" - no application is registered.',
+            $scope->value,
+        ));
+
+        return $container->get($id, AppInterface::class);
     }
 }

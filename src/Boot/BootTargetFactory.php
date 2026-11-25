@@ -26,7 +26,12 @@ final readonly class BootTargetFactory implements BootTargetFactoryInterface
                 continue;
             }
 
-            return $adapter->create($app, $scope);
+            $target = $adapter->create($app, $scope);
+            if ($target instanceof AppInterface) {
+                throw new LogicException('A runnable application cannot be used as a boot target.');
+            }
+
+            return $target;
         }
 
         throw new LogicException(sprintf(

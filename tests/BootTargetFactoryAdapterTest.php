@@ -119,3 +119,24 @@ describe('boot target factory adapters', function (): void {
             ->toThrow(LogicException::class, 'Boot target adapter entry must be a class-string');
     });
 });
+
+
+it('rejects a boot adapter that returns a runnable app instead of a separate target', function (): void {
+    $app = new BootTargetFactoryAdapterTestApp();
+    $adapter = new BootTargetFactoryAdapterTestSupportedAdapter($app);
+    $container = new BootTargetFactoryAdapterTestContainer([
+        BootTargetFactoryAdapterTestSupportedAdapter::class => $adapter,
+    ]);
+    $config = new Config([ConfigKey::BOOT_TARGET_ADAPTERS => [
+        BootTargetFactoryAdapterTestSupportedAdapter::class,
+    ]], new Environment([]));
+
+    expect(fn () => (new BootTargetFactory(new ContainerValue($container, $config)))->create($app, Scope::HTTP))
+        ->toThrow(LogicException::class, 'runnable application');
+});
+
+it('rejects a runnable target even when a custom factory bypasses the standard factory', function (): void {
+    $container = new ContainerValue(new BootTargetFactoryAdapterTestContainer([]), new Config([], new Environment([])));
+    expect(fn () => new \Componenta\App\Boot\BootContext($container, Scope::HTTP, new BootTargetFactoryAdapterTestApp()))
+        ->toThrow(LogicException::class, 'runnable application');
+});
