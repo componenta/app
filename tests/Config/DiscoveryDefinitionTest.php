@@ -21,3 +21,20 @@ it('preserves valid ordered discovery directories and exclude patterns', functio
     expect($definition->directories)->toBe(['src', 'plugins'])
         ->and($definition->exclude)->toBe(['vendor', 'generated']);
 });
+
+
+it('keeps validated discovery paths and exclusions independent of caller-owned references', function (): void {
+    $directory = 'src';
+    $pattern = 'vendor';
+    $definition = new DiscoveryDefinition([&$directory], [&$pattern]);
+
+    $directory = 42;
+    $pattern = '';
+
+    expect($definition->directories)->toBe(['src'])
+        ->and($definition->exclude)->toBe(['vendor']);
+
+    $directories = $definition->directories;
+    $directories[0] = 'other';
+    expect($definition->directories)->toBe(['src']);
+});
