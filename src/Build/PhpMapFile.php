@@ -7,6 +7,7 @@ namespace Componenta\App\Build;
 use Componenta\App\Internal\AtomicFileWriter;
 use Componenta\App\Internal\BuildArtifact;
 use Componenta\VarExport\ArrayExporter;
+use Componenta\VarExport\EnumExporter;
 use Componenta\VarExport\ScalarExporter;
 use Componenta\VarExport\VarExport;
 use ErrorException;
@@ -50,14 +51,14 @@ final class PhpMapFile
     }
 
     /**
-     * Write a PHP map, optionally tied to the current discovery build generation.
+     * Write a map of scalars, arrays and enum cases, optionally tied to the current discovery build generation.
      */
     public static function write(string $file, array $map, ?string $generation = null): void
     {
         if ($generation !== null) {
             $map = BuildArtifact::wrap($generation, $map);
         }
-        $expression = (new VarExport(new ScalarExporter(), new ArrayExporter()))->export($map);
+        $expression = (new VarExport(new ScalarExporter(), new ArrayExporter(), new EnumExporter()))->export($map);
         AtomicFileWriter::write($file, "<?php\ndeclare(strict_types=1);\nreturn " . $expression . ";\n");
     }
 
