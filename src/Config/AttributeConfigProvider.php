@@ -12,10 +12,17 @@ use ReflectionClass;
 
 final readonly class AttributeConfigProvider implements DiscoveryAwareConfigProviderInterface
 {
+    /** @var list<class-string>|null */
+    private ?array $providerClasses;
+
     public function __construct(
         private ?ClassIteratorInterface $discovered = null,
-        private ?array $providerClasses = null,
+        ?array $providerClasses = null,
     ) {
+        // Retain structural membership/order without caller-owned reference slots.
+        $this->providerClasses = $providerClasses === null
+            ? null
+            : array_map(static fn (mixed $class): mixed => $class, $providerClasses);
     }
 
     public function withDiscovered(?ClassIteratorInterface $discovered): static

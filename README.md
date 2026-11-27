@@ -89,6 +89,8 @@ The selected `PreparedBuild` is pinned once before configuration providers run. 
 
 `AttributeConfigProvider` still creates and invokes each provider on every configuration composition. The `app.config-providers` artifact is an ordered list of provider class names, not cached provider results. It avoids reflecting unrelated declarations while preserving provider order, lazy contributions and current runtime values. Missing metadata falls back to the selected discovery iterator. Build never rewrites `config/config.php` or snapshots the complete Config/DI container.
 
+Custom hosts can supply a prepared class list through the `AttributeConfigProvider` constructor or `withPreparedProviders()`. The list is captured independently of caller-owned PHP references; provider instances and returned configuration values are still created on every composition.
+
 Set `source: true` in `ConfigFactory::create()` or `APP_DISCOVERY_SOURCE=1` before bootstrap to ignore prepared metadata. Source selection happens before definition loading and provider invocation. Builders receive shared source discovery through `ConfigKey::DISCOVERY_SOURCE`; use a fresh source bootstrap for each build, rather than treating a reused container as a filesystem watcher.
 
 ## Application build protocol

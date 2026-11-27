@@ -103,3 +103,41 @@ it('reports the discovered provider and preserves the original failure during de
         AttributeConfigDeferredFailure::$afterContribution = false;
     }
 })->with([false, true]);
+
+#[AsConfig]
+class AttributeConfigSnapshotFirstProvider
+{
+    public static string $value = 'initial';
+    private int $invocations = 0;
+
+    public function __invoke(): array
+    {
+        return ['provider' => static::class, 'value' => self::$value, 'invocations' => ++$this->invocations];
+    }
+}
+
+#[AsConfig]
+final class AttributeConfigSnapshotSecondProvider extends AttributeConfigSnapshotFirstProvider {}
+
+it('snapshots prepared provider order while retaining current provider values and fresh instances', function (bool $withMethod): void {
+    $first = AttributeConfigSnapshotFirstProvider::class;
+    $second = AttributeConfigSnapshotSecondProvider::class;
+    $classes = [&$first, &$second];
+    $provider = $withMethod
+        ? (new AttributeConfigProvider())->withPreparedProviders($classes)
+        : new AttributeConfigProvider(providerClasses: $classes);
+    $first = AttributeConfigSnapshotSecondProvider::class;
+    $second = AttributeConfigSnapshotFirstProvider::class;
+
+    try {
+        foreach (['initial', 'current'] as $value) {
+            AttributeConfigSnapshotFirstProvider::$value = $value;
+            expect(iterator_to_array($provider(), false))->toBe([
+                ['provider' => AttributeConfigSnapshotFirstProvider::class, 'value' => $value, 'invocations' => 1],
+                ['provider' => AttributeConfigSnapshotSecondProvider::class, 'value' => $value, 'invocations' => 1],
+            ]);
+        }
+    } finally {
+        AttributeConfigSnapshotFirstProvider::$value = 'initial';
+    }
+})->with(['constructor' => false, 'withPreparedProviders' => true]);
