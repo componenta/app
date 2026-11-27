@@ -124,14 +124,14 @@ final class BuildStore
     private function readCurrent(): ?array
     {
         $file = $this->directory . '/current.json';
-        clearstatcache(true, $file);
-        if (is_link($file) || !is_file($file) || !is_readable($file)) {
-            return null;
-        }
         set_error_handler(static function (int $severity, string $message, string $file, int $line): never {
             throw new ErrorException($message, 0, $severity, $file, $line);
         });
         try {
+            clearstatcache(true, $file);
+            if (is_link($file) || !is_file($file) || !is_readable($file)) {
+                return null;
+            }
             if (DIRECTORY_SEPARATOR === '/') {
                 $permissions = fileperms($file);
                 if ($permissions === false || ($permissions & 0o022) !== 0) {
