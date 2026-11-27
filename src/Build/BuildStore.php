@@ -34,12 +34,15 @@ final class BuildStore
         if (!array_is_list($requiredArtifacts)) {
             throw new InvalidArgumentException('Required artifacts must be a list of artifact IDs.');
         }
+        $policy = [];
         foreach ($requiredArtifacts as $id) {
             if (!is_string($id) || !BuildContext::validId($id)) {
                 throw new InvalidArgumentException('Required artifacts must contain valid artifact IDs.');
             }
+            // Copy scalar values instead of retaining caller-owned reference slots.
+            $policy[$id] = $id;
         }
-        $this->requiredArtifacts = array_values(array_unique($requiredArtifacts));
+        $this->requiredArtifacts = array_values($policy);
         $this->owner = new stdClass();
     }
 

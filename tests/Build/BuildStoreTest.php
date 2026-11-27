@@ -266,3 +266,25 @@ it('reads the mutable pointer as data and retains file trust checks', function (
         expect($store->load()->generation)->toBe($prepared->generation);
     } finally { unset($GLOBALS['buildPointerExecuted']); removeBuildStoreTestRoot($root); }
 });
+
+it('keeps required artifact policy independent of references in the caller array', function (): void {
+    $root = sys_get_temp_dir() . '/app_build_required_reference_' . bin2hex(random_bytes(8));
+    $required = 'test.required';
+    $store = new BuildStore($root, requiredArtifacts: [&$required, 'test.required']);
+    try {
+        $required = 'test.replacement';
+        $missing = $store->begin();
+        $missing->write('test.replacement', ['value' => 'replacement']);
+        expect(fn () => $store->publish($missing))->toThrow(RuntimeException::class, 'test.required');
+
+        $complete = $store->begin();
+        $complete->write('test.required', ['value' => 'required']);
+        $pinned = $store->publish($complete);
+        expect($pinned->read('test.required'))->toBe(['value' => 'required'])
+            ->and($store->load()->read('test.required'))->toBe(['value' => 'required']);
+
+        $required = 'test.changed.again';
+        expect(fn () => $pinned->read('test.required', 2))->toThrow(RuntimeException::class, 'test.required')
+            ->and(fn () => $store->load()->read('test.required', 2))->toThrow(RuntimeException::class, 'test.required');
+    } finally { removeBuildStoreTestRoot($root); }
+});
