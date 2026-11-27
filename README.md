@@ -163,7 +163,7 @@ Pass the same list to `ApplicationBuildRunner::build(..., requiredArtifacts: [..
 
 Old generations and failed staging generations are intentionally retained. Remove them offline only after no worker can still reference them, or retire the complete release directory. No online garbage collector is provided. `ApplicationBuildCleanerInterface` and participant-owned cleanup were removed.
 
-PHP artifacts are trusted executable deployment files. Keep the build directory outside the public web root and writable only by deployment identities. Readers reject symlink files and group/other-writable files on POSIX. Publish before starting or reloading workers. Legacy flat `classes.php`/`boot.php` maps are ignored; rebuild with the new protocol.
+PHP artifacts are trusted executable deployment files. Keep the build directory outside the public web root and writable only by deployment identities. Readers reject symlink files and group/other-writable files on POSIX. Publish before starting or reloading workers. Legacy flat `classes.php`/`boot.php` maps are ignored; rebuild with the new protocol. Publication format 2 separates metadata filenames from valid artifact IDs, including `manifest`. Rebuild publications from earlier store formats before deployment.
 
 ## Bootloaders and discovery
 

@@ -79,6 +79,27 @@ it('keeps the old published generation when a later participant fails', function
     } finally { removeBuildStoreTestRoot($root); }
 });
 
+it('preserves an artifact named manifest through publication and rebuild', function (array $required): void {
+    $root = sys_get_temp_dir() . '/app_build_manifest_artifact_' . bin2hex(random_bytes(8));
+    $store = new BuildStore($root, requiredArtifacts: $required);
+    try {
+        $first = $store->begin();
+        $first->write('manifest', ['application' => 'first']);
+        $pinned = $store->publish($first);
+        expect($pinned->read('manifest'))->toBe(['application' => 'first'])
+            ->and($store->load()->read('manifest'))->toBe(['application' => 'first']);
+
+        $second = $store->begin();
+        $second->write('manifest', ['application' => 'second']);
+        $store->publish($second);
+        expect($store->load()->read('manifest'))->toBe(['application' => 'second'])
+            ->and($pinned->read('manifest'))->toBe(['application' => 'first']);
+    } finally { removeBuildStoreTestRoot($root); }
+})->with([
+    'optional artifact' => [[]],
+    'required artifact' => [['manifest']],
+]);
+
 it('rejects duplicate and unsafe artifact IDs and closes published contexts', function (): void {
     $root = sys_get_temp_dir() . '/app_build_context_' . bin2hex(random_bytes(8));
     $store = new BuildStore($root);
@@ -138,10 +159,10 @@ it('binds explicit release identities and rejects malformed manifests without sc
         expect((new BuildStore($root, 'release-a'))->load()->generation)->toBe($prepared->generation)
             ->and((new BuildStore($root, 'release-b'))->load())->toBeNull()
             ->and((new BuildStore($root))->load())->toBeNull();
-        $manifest = $root . '/generations/' . $prepared->generation . '/manifest.php';
-        file_put_contents($manifest, '<?php return ["version" => 1, "generation" => "' . $prepared->generation . '", "identity" => "release-a", "artifacts" => ["../escape" => ["state" => "written", "schema" => 1]]];');
+        $manifest = $root . '/generations/' . $prepared->generation . '/_manifest.php';
+        file_put_contents($manifest, '<?php return ["version" => 2, "generation" => "' . $prepared->generation . '", "identity" => "release-a", "artifacts" => ["../escape" => ["state" => "written", "schema" => 1]]];');
         expect($store->load())->toBeNull();
-        file_put_contents($root . '/current.json', '{"version":1,"generation":"../../escape"}');
+        file_put_contents($root . '/current.json', '{"version":2,"generation":"../../escape"}');
         expect($store->load())->toBeNull();
     } finally { removeBuildStoreTestRoot($root); }
 });
@@ -157,6 +178,25 @@ it('cleans without loading the pointer and refuses a directory in its place', fu
         file_put_contents($root . '/current.json/keep', 'preserved');
         expect(fn () => $store->clean())->toThrow(RuntimeException::class)
             ->and(file_get_contents($root . '/current.json/keep'))->toBe('preserved');
+    } finally { removeBuildStoreTestRoot($root); }
+});
+
+it('rejects the earlier publication format until the application is rebuilt', function (): void {
+    $root = sys_get_temp_dir() . '/app_build_old_format_' . bin2hex(random_bytes(8));
+    try {
+        $store = new BuildStore($root);
+        $build = $store->begin();
+        $build->write('test.data', ['value' => 'published']);
+        $pinned = $store->publish($build);
+        file_put_contents($root . '/current.json', json_encode([
+            'version' => 1,
+            'generation' => $pinned->generation,
+        ], JSON_THROW_ON_ERROR));
+
+        expect($store->load())->toBeNull()
+            ->and(fn () => (new BuildStore($root, requiredArtifacts: ['test.data']))->load())
+            ->toThrow(RuntimeException::class, 'required')
+            ->and($pinned->read('test.data'))->toBe(['value' => 'published']);
     } finally { removeBuildStoreTestRoot($root); }
 });
 

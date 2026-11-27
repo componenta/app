@@ -15,7 +15,9 @@ use Throwable;
 /** Publishes a complete generation with one atomic current-pointer replacement. */
 final class BuildStore
 {
-    private const int VERSION = 1;
+    private const int VERSION = 2;
+    // A leading underscore is outside the artifact-ID namespace.
+    private const string MANIFEST_FILE = '_manifest.php';
     private readonly object $owner;
     /** @var list<string> */
     private readonly array $requiredArtifacts;
@@ -54,7 +56,7 @@ final class BuildStore
         $prepared = new PreparedBuild($directory, $build->generation, $artifacts, $this->requiredArtifacts);
         $this->requireArtifacts($prepared, $artifacts);
 
-        PhpMapFile::write($directory . '/manifest.php', [
+        PhpMapFile::write($directory . '/' . self::MANIFEST_FILE, [
             'version' => self::VERSION,
             'generation' => $build->generation,
             'identity' => $this->identity,
@@ -81,7 +83,7 @@ final class BuildStore
         }
 
         $directory = $this->generationDirectory($generation);
-        $manifest = PhpMapFile::read($directory . '/manifest.php');
+        $manifest = PhpMapFile::read($directory . '/' . self::MANIFEST_FILE);
         if (($manifest['version'] ?? null) !== self::VERSION
             || ($manifest['generation'] ?? null) !== $generation
             || !array_key_exists('identity', $manifest ?? [])
