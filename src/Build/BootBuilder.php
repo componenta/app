@@ -19,6 +19,10 @@ final readonly class BootBuilder implements ApplicationBuilderInterface
     {
         $map = [];
         foreach ($this->classes as $class) {
+            if ($class->isTrait) {
+                continue;
+            }
+
             $methods = [];
             foreach ($class->reflector->getMethods(ReflectionMethod::IS_PUBLIC) as $method) {
                 if ($method->getAttributes(Boot::class) !== []) { $methods[] = $method->getName(); }

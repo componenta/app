@@ -42,6 +42,10 @@ final class BootMethodInvocation implements
             throw ListenerAlreadyFinalizedException::forListener(self::class);
         }
 
+        if ($info->isTrait) {
+            return;
+        }
+
         $key = strtolower(ltrim($info->fullyQualifiedName, '\\'));
         if (isset($this->seen[$key])) {
             return;
