@@ -47,7 +47,11 @@ final class AtomicFileWriter
             }
             $temporary = null;
             if (function_exists('opcache_invalidate')) {
-                opcache_invalidate($file, true);
+                try {
+                    opcache_invalidate($file, true);
+                } catch (ErrorException) {
+                    // Optional cache maintenance cannot undo the completed rename.
+                }
             }
         } catch (Throwable $error) {
             $failure = $error;

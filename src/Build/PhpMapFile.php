@@ -42,7 +42,11 @@ final class PhpMapFile
                 // A concurrent cleanup already removed the owned artifact.
             }
             if (function_exists('opcache_invalidate')) {
-                opcache_invalidate($file, true);
+                try {
+                    opcache_invalidate($file, true);
+                } catch (ErrorException) {
+                    // A restricted OPcache API does not make a completed unlink fail.
+                }
             }
         } finally {
             restore_error_handler();

@@ -288,3 +288,30 @@ it('keeps required artifact policy independent of references in the caller array
             ->and(fn () => $store->load()->read('test.required', 2))->toThrow(RuntimeException::class, 'test.required');
     } finally { removeBuildStoreTestRoot($root); }
 });
+
+it('publishes and cleans immutable generations when the OPcache API is restricted', function (): void {
+    if (!extension_loaded('Zend OPcache')) { test()->markTestSkipped('Requires OPcache.'); }
+    $root = sys_get_temp_dir() . '/app_build_restricted_opcache_' . bin2hex(random_bytes(8));
+    try {
+        $process = proc_open([
+            PHP_BINARY, '-d', 'opcache.enable_cli=1', '-d', 'opcache.file_update_protection=0',
+            '-d', 'opcache.validate_timestamps=0', '-d', 'opcache.restrict_api=' . $root . '/unavailable-api',
+            __DIR__ . '/../Fixtures/restricted-opcache-build.php',
+            dirname(__DIR__, 2) . '/vendor/autoload.php', $root,
+        ], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+        expect(is_resource($process))->toBeTrue();
+        $output = stream_get_contents($pipes[1]);
+        $errors = stream_get_contents($pipes[2]);
+        fclose($pipes[1]); fclose($pipes[2]);
+        expect(proc_close($process))->toBe(0, $errors)
+            ->and($errors)->toBe('')
+            ->and(json_decode($output, true, flags: JSON_THROW_ON_ERROR))->toBe([
+                'unpublished' => true,
+                'pinnedAfterClean' => ['value' => 'first'],
+                'newPublicationSelected' => true,
+                'newValue' => ['value' => 'second'],
+                'pinnedAfterPublish' => ['value' => 'first'],
+                'handlerRestored' => true,
+            ]);
+    } finally { removeBuildStoreTestRoot($root); }
+});
