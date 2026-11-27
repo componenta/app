@@ -187,7 +187,7 @@ BuildStore owns artifact placement under `ConfigKey::DEFAULT_CACHE_BUILD_DIR`. D
 - `componenta/app-http` supplies the HTTP application.
 - `componenta/websocket-app` supplies the WebSocket application scope.
 - `componenta/cqrs-app` supplies CQRS discovery, runtime maps and its builder.
-- `componenta/interceptor-app` supplies interceptor metadata discovery and its builder.
+- `componenta/interceptor-app` is an optional migration provider. Interceptor 4 owns runtime metadata and needs no application builder.
 
 Reusable runtime libraries can be used independently; their app packages connect configuration, discovery, builders and startup.
 
