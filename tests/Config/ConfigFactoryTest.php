@@ -313,6 +313,41 @@ it('lets the application override the builder list contributed by the App provid
     }
 });
 
+it('retains required provider validation when a definition loader changes caller-owned references', function (): void {
+    $root = appConfigFactoryRoot('required_provider_policy');
+    $paths = new PathResolver($root);
+    $environment = new Environment([]);
+    $store = ConfigFactory::buildStore($paths, $environment);
+    $required = \Componenta\App\ConfigKey::CONFIG_PROVIDERS_ARTIFACT;
+    $requiredArtifacts = [&$required];
+    $definition = appConfigDefinition([new \Componenta\App\ConfigProvider()]);
+
+    try {
+        $build = $store->begin();
+        $build->write(\Componenta\App\ConfigKey::DISCOVERY_ARTIFACT, []);
+        $build->write(\Componenta\App\ConfigKey::CONFIG_PROVIDERS_ARTIFACT, ['']);
+        $store->publish($build);
+
+        $loadDefinition = static function () use (&$required, $definition): ConfigDefinition {
+            $required = 'different.artifact';
+            return $definition;
+        };
+
+        expect(fn () => ConfigFactory::create(
+            $paths,
+            $loadDefinition,
+            $environment,
+            requiredArtifacts: $requiredArtifacts,
+        ))->toThrow(RuntimeException::class, 'Required configuration provider artifact has an invalid class list.');
+        expect($required)->toBe('different.artifact');
+
+        // The same malformed optional index still permits the documented fallback.
+        expect(ConfigFactory::create($paths, $definition, $environment)->discovered->count())->toBe(0);
+    } finally {
+        removeAppConfigFactoryRoot($root);
+    }
+});
+
 
 it('can recover using source discovery explicitly even when a prepared map still exists', function (): void {
     $root = appConfigFactoryRoot('forced_source');

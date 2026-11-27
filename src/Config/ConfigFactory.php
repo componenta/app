@@ -36,8 +36,11 @@ final class ConfigFactory
     ): ConfigFactoryResult {
         $environment ??= new EnvLoader($paths->baseDir)->load();
         $store = self::buildStore($paths, $environment, $requiredArtifacts);
+        // Capture policy before user definition code can change caller-owned references.
+        $requiresArtifacts = $requiredArtifacts !== [];
+        $requiresProviderIndex = in_array(AppConfigKey::CONFIG_PROVIDERS_ARTIFACT, $requiredArtifacts, true);
         $sourceOverride = $environment->bool('APP_DISCOVERY_SOURCE', false);
-        if (!$source && $sourceOverride && $requiredArtifacts !== []) {
+        if (!$source && $sourceOverride && $requiresArtifacts) {
             throw new RuntimeException('APP_DISCOVERY_SOURCE conflicts with required artifacts; use explicit source bootstrap for preparation.');
         }
         // Decide before loading the definition or invoking any configuration provider.
@@ -57,7 +60,7 @@ final class ConfigFactory
             $discovered = $prepared === null ? null : self::preparedDiscovery($prepared);
             $preparedDiscovery = $discovered !== null;
             if ($discovered === null) {
-                if ($prepared !== null && $requiredArtifacts !== []) {
+                if ($prepared !== null && $requiresArtifacts) {
                     throw new RuntimeException('Published discovery is unusable; required artifacts prohibit falling back to a source bootstrap.');
                 }
                 $prepared = null;
@@ -68,7 +71,7 @@ final class ConfigFactory
         }
         $providerClasses = $prepared?->read(AppConfigKey::CONFIG_PROVIDERS_ARTIFACT);
         if (!self::validProviderClasses($providerClasses)) {
-            if ($prepared !== null && in_array(AppConfigKey::CONFIG_PROVIDERS_ARTIFACT, $requiredArtifacts, true)) {
+            if ($prepared !== null && $requiresProviderIndex) {
                 throw new RuntimeException('Required configuration provider artifact has an invalid class list.');
             }
             $providerClasses = null;
