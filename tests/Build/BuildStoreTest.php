@@ -455,3 +455,27 @@ it('applies optional and required publication policy when open_basedir denies th
             ]);
     } finally { removeBuildStoreTestRoot($root); }
 });
+
+it('exposes the selected artifact policy independently of artifact availability', function (): void {
+    $root = sys_get_temp_dir() . '/app_build_policy_' . bin2hex(random_bytes(8));
+    $strict = new BuildStore($root, requiredArtifacts: ['test.required']);
+    try {
+        $build = $strict->begin();
+        $build->write('test.required', ['required']);
+        $build->write('test.optional', ['optional']);
+        $selected = $strict->publish($build);
+        $optional = (new BuildStore($root))->load();
+
+        foreach ([$selected, $strict->load()] as $prepared) {
+            expect($prepared->isRequired('test.required'))->toBeTrue()
+                ->and($prepared->isRequired('test.optional'))->toBeFalse()
+                ->and($prepared->isRequired('test.missing'))->toBeFalse();
+        }
+        expect($optional->isRequired('test.required'))->toBeFalse()
+            ->and($optional->read('test.required'))->toBe(['required']);
+
+        $strict->clean();
+        expect($selected->isRequired('test.required'))->toBeTrue()
+            ->and($selected->read('test.required'))->toBe(['required']);
+    } finally { removeBuildStoreTestRoot($root); }
+});

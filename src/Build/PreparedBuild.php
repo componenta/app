@@ -49,9 +49,15 @@ final readonly class PreparedBuild
         return $skipped;
     }
 
+    /** Whether the selected deployment requires a usable artifact, including its domain payload. */
+    public function isRequired(string $id): bool
+    {
+        return in_array($id, $this->requiredArtifacts, true);
+    }
+
     private function unavailable(string $id): null
     {
-        if (in_array($id, $this->requiredArtifacts, true)) {
+        if ($this->isRequired($id)) {
             throw new RuntimeException(sprintf('Required build artifact "%s" is missing, unreadable or has an incompatible schema.', $id));
         }
         return null;
