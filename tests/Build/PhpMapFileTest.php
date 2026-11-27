@@ -111,3 +111,24 @@ it('preserves unrelated files and removes owned temporary files when publication
         rmdir($root);
     }
 });
+
+
+it('treats filesystem warnings during map path inspection as an unusable artifact', function (bool $throwWarnings, ?string $generation): void {
+    $file = 'appunregistered' . bin2hex(random_bytes(8)) . '://map.php';
+    $warnings = 0;
+    $handler = static function (int $severity, string $message) use (&$warnings, $throwWarnings): bool {
+        ++$warnings;
+        if ($throwWarnings) { throw new ErrorException($message, 0, $severity); }
+        return true;
+    };
+    set_error_handler($handler);
+    try {
+        expect(PhpMapFile::read($file, $generation))->toBeNull()
+            ->and($warnings)->toBe(0);
+        $current = set_error_handler(static fn () => true);
+        restore_error_handler();
+        expect($current)->toBe($handler);
+    } finally {
+        restore_error_handler();
+    }
+})->with([false, true])->with([null, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa']);

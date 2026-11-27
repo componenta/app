@@ -72,14 +72,14 @@ final class PhpMapFile
      */
     public static function read(string $file, ?string $generation = null): ?array
     {
-        clearstatcache(true, $file);
-        if (is_link($file) || !is_file($file) || !is_readable($file)) {
-            return null;
-        }
         set_error_handler(static function (int $severity, string $message, string $file, int $line): never {
             throw new ErrorException($message, 0, $severity, $file, $line);
         });
         try {
+            clearstatcache(true, $file);
+            if (is_link($file) || !is_file($file) || !is_readable($file)) {
+                return null;
+            }
             // Executable PHP maps are trusted deployment artifacts, never user data.
             // Refuse files writable by other POSIX users even when otherwise readable.
             if (DIRECTORY_SEPARATOR === '/') {
