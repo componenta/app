@@ -21,6 +21,19 @@ final class BuildContext
         private readonly object $owner,
     ) {}
 
+    private function __clone() {}
+
+    /** A write capability cannot be detached from its live publication lifecycle. */
+    public function __serialize(): array
+    {
+        throw new LogicException('Build contexts cannot be serialized.');
+    }
+
+    public function __unserialize(array $data): void
+    {
+        throw new LogicException('Build contexts cannot be unserialized.');
+    }
+
     /** Serialization completes before this method returns; failures leave the ID available for skip(). */
     public function write(string $id, array $payload, int $schemaVersion = 1): void
     {

@@ -133,6 +133,26 @@ it('allows explicit skip after a synchronous portability failure', function (): 
     } finally { fclose($resource); removeBuildStoreTestRoot($root); }
 });
 
+it('rejects copying a build write capability without closing the original', function (Closure $copy, string $error): void {
+    $root = sys_get_temp_dir() . '/app_build_copy_' . bin2hex(random_bytes(8));
+    $store = new BuildStore($root);
+    try {
+        $build = $store->begin();
+        expect(fn () => $copy($build))->toThrow($error);
+
+        $build->write('test.data', ['value' => 'original']);
+        $prepared = $store->publish($build);
+        expect($prepared->read('test.data'))->toBe(['value' => 'original'])
+            ->and(fn () => $build->write('test.after', []))->toThrow(LogicException::class, 'closed');
+    } finally { removeBuildStoreTestRoot($root); }
+})->with([
+    'cloning' => [static fn (BuildContext $build): BuildContext => clone $build, Error::class],
+    'serialization' => [static fn (BuildContext $build): string => serialize($build), LogicException::class],
+    'unserialization' => [static fn (BuildContext $build): mixed => unserialize(sprintf(
+        'O:%d:"%s":0:{}', strlen(BuildContext::class), BuildContext::class,
+    )), LogicException::class],
+]);
+
 it('enforces explicit required artifacts without changing the prior publication', function (): void {
     $root = sys_get_temp_dir() . '/app_build_required_' . bin2hex(random_bytes(8));
     $store = new BuildStore($root, 'release-a', ['test.required']);
