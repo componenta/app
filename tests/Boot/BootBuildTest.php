@@ -66,9 +66,11 @@ it('builds boot metadata without instantiating attributes and preserves native i
         BootBuildValue::$constructions = 0;
         $builder = $load('build')->get(ApplicationBuildOrchestrator::class);
         expect(BootBuildValue::$constructions)->toBe(0);
-        $builder->build();
+        $prepared = $builder->build();
+        $bootMap = $root . '/var/cache/build/generations/' . $prepared->generation . '/app.boot.php';
+        $classMap = $root . '/var/cache/build/generations/' . $prepared->generation . '/app.discovery.php';
         expect(BootBuildValue::$constructions)->toBe(0)
-            ->and(is_file($root . '/var/cache/build/boot.php'))->toBeTrue();
+            ->and(is_file($bootMap))->toBeTrue();
         expect($boot($load('built')))->toBe(['built:1', 'second:1', 'inherited'])
             ->and($boot($load('again')))->toBe(['again:1', 'second:1', 'inherited']);
         $failure = BootBuildValue::$failure = new DomainException('Attribute parameter failed.');
@@ -80,9 +82,9 @@ it('builds boot metadata without instantiating attributes and preserves native i
         } finally { BootBuildValue::$failure = null; }
 
         // A structurally valid map from another build must not suppress boot methods.
-        $currentMap = require $root . '/var/cache/build/boot.php';
+        $currentMap = require $bootMap;
         $oldMap = ['version' => $currentMap['version'], 'generation' => str_repeat('f', 32), 'payload' => ['BootBuildChild' => []]];
-        file_put_contents($root . '/var/cache/build/boot.php', '<?php return ' . var_export($oldMap, true) . ';');
+        file_put_contents($bootMap, '<?php return ' . var_export($oldMap, true) . ';');
         expect($boot($load('mixed-generation')))->toBe(['mixed-generation:1', 'second:1', 'inherited']);
 
         foreach ([
@@ -93,11 +95,11 @@ it('builds boot metadata without instantiating attributes and preserves native i
             '<?php return [;',
             '<?php throw new LogicException("Invalid map");',
         ] as $invalidMap) {
-            file_put_contents($root . '/var/cache/build/boot.php', $invalidMap);
+            file_put_contents($bootMap, $invalidMap);
             expect($boot($load('fallback')))->toBe(['fallback:1', 'second:1', 'inherited']);
         }
-        file_put_contents($root . '/var/cache/build/boot.php', '<?php return ["BootBuildChild" => []];');
-        unlink($root . '/var/cache/build/classes.php');
+        file_put_contents($bootMap, '<?php return ["BootBuildChild" => []];');
+        unlink($classMap);
         expect($boot($load('source-again')))->toBe(['source-again:1', 'second:1', 'inherited']);
         $load('rebuild')->get(ApplicationBuildOrchestrator::class)->build();
         expect($boot($load('rebuilt')))->toBe(['rebuilt:1', 'second:1', 'inherited']);

@@ -3,6 +3,8 @@
 declare(strict_types=1);
 
 use Componenta\App\Build\DiscoveryBuilder;
+use Componenta\App\Build\BuildStore;
+use Componenta\App\ConfigKey;
 use Componenta\ClassFinder\ClassFinder;
 use Componenta\ClassFinder\ClassIterator;
 use Componenta\Tokenizer\ClassInfo;
@@ -20,17 +22,19 @@ it('replays every declaration with its file and modifiers without reading source
         trait Behavior {}
         enum Status { case Active; }
         PHP);
-    $artifact = $root . '/build/classes.php';
+    $store = new BuildStore($root . '/build');
 
     try {
-        $builder = new DiscoveryBuilder((new ClassFinder())->find($root . '/src'), $artifact);
-        expect(file_exists($artifact))->toBeFalse();
-        $builder->build();
+        $builder = new DiscoveryBuilder((new ClassFinder())->find($root . '/src'));
+        expect($store->load())->toBeNull();
+        $context = $store->begin();
+        $builder->build($context);
+        $prepared = $store->publish($context);
         $file = realpath($sourceFile);
         unlink($sourceFile);
         rmdir($root . '/src');
 
-        $iterator = ClassIterator::fromMap((require $artifact)['payload']);
+        $iterator = ClassIterator::fromMap($prepared->read(ConfigKey::DISCOVERY_ARTIFACT));
         $rows = static function () use ($iterator): array {
             $rows = [];
             foreach ($iterator as $path => $class) {
@@ -51,10 +55,8 @@ it('replays every declaration with its file and modifiers without reading source
             ->and($rows())->toBe($expected)
             ->and($iterator->count())->toBe(5);
     } finally {
-        if (is_file($sourceFile)) { unlink($sourceFile); }
-        if (is_dir($root . '/src')) { rmdir($root . '/src'); }
-        if (is_file($artifact)) { unlink($artifact); }
-        if (is_dir($root . '/build')) { rmdir($root . '/build'); }
+        $entries = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST);
+        foreach ($entries as $entry) { $entry->isDir() ? rmdir($entry->getPathname()) : unlink($entry->getPathname()); }
         rmdir($root);
     }
 });
@@ -62,9 +64,10 @@ it('replays every declaration with its file and modifiers without reading source
 it('keeps the previous discovery map intact when reading the source fails', function (): void {
     $root = sys_get_temp_dir() . '/componenta_discovery_failure_' . bin2hex(random_bytes(6));
     mkdir($root, 0700);
-    $artifact = $root . '/classes.php';
-    $old = '<?php return [];';
-    file_put_contents($artifact, $old);
+    $store = new BuildStore($root . '/build');
+    $initial = $store->begin();
+    $initial->write(ConfigKey::DISCOVERY_ARTIFACT, ['old']);
+    $old = $store->publish($initial);
     $failure = new DomainException('Source unavailable');
     $classes = new ClassIterator((static function () use ($failure): Generator {
         yield '/one.php' => new ClassInfo('One');
@@ -73,15 +76,16 @@ it('keeps the previous discovery map intact when reading the source fails', func
 
     try {
         try {
-            (new DiscoveryBuilder($classes, $artifact))->build();
+            (new DiscoveryBuilder($classes))->build($store->begin());
             test()->fail('The source failure must propagate.');
         } catch (DomainException $caught) {
             expect($caught)->toBe($failure);
         }
-        expect(file_get_contents($artifact))->toBe($old)
-            ->and(scandir($root))->toBe(['.', '..', 'classes.php']);
+        expect($store->load()->generation)->toBe($old->generation)
+            ->and($store->load()->read(ConfigKey::DISCOVERY_ARTIFACT))->toBe(['old']);
     } finally {
-        unlink($artifact);
+        $entries = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST);
+        foreach ($entries as $entry) { $entry->isDir() ? rmdir($entry->getPathname()) : unlink($entry->getPathname()); }
         rmdir($root);
     }
 });

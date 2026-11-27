@@ -8,11 +8,13 @@ use Componenta\ClassFinder\ClassIteratorInterface;
 use Componenta\Config\Exception\ConfigException;
 use Componenta\Reflection\Reflection;
 use Throwable;
+use ReflectionClass;
 
 final readonly class AttributeConfigProvider implements DiscoveryAwareConfigProviderInterface
 {
     public function __construct(
         private ?ClassIteratorInterface $discovered = null,
+        private ?array $providerClasses = null,
     ) {
     }
 
@@ -21,26 +23,16 @@ final readonly class AttributeConfigProvider implements DiscoveryAwareConfigProv
         return new self($discovered);
     }
 
+    /** @param list<class-string> $classes Trusted structural metadata from the selected build. */
+    public function withPreparedProviders(array $classes): self
+    {
+        return new self($this->discovered, $classes);
+    }
+
     /** @return iterable<array<array-key, mixed>> */
     public function __invoke(): iterable
     {
-        if ($this->discovered === null) {
-            return;
-        }
-
-        $seen = [];
-        foreach ($this->discovered as $class) {
-            $key = strtolower(ltrim($class->fullyQualifiedName, '\\'));
-            if (isset($seen[$key])) {
-                continue;
-            }
-            $seen[$key] = true;
-
-            if (!Reflection::hasMetadata($class->reflector, AsConfig::class)) {
-                continue;
-            }
-
-            $reflection = $class->reflector;
+        foreach ($this->providers() as $reflection) {
             try {
                 $provider = $reflection->newInstance();
                 if (!is_callable($provider)) {
@@ -77,6 +69,32 @@ final readonly class AttributeConfigProvider implements DiscoveryAwareConfigProv
                     sprintf('Failed to load config from %s: %s', $reflection->getName(), $e->getMessage()),
                     previous: $e,
                 );
+            }
+        }
+    }
+
+    /** @return iterable<ReflectionClass<object>> */
+    private function providers(): iterable
+    {
+        if ($this->providerClasses !== null) {
+            foreach ($this->providerClasses as $class) {
+                yield new ReflectionClass($class);
+            }
+            return;
+        }
+        if ($this->discovered === null) {
+            return;
+        }
+
+        $seen = [];
+        foreach ($this->discovered as $class) {
+            $key = strtolower(ltrim($class->fullyQualifiedName, '\\'));
+            if (isset($seen[$key])) {
+                continue;
+            }
+            $seen[$key] = true;
+            if (Reflection::hasMetadata($class->reflector, AsConfig::class)) {
+                yield $class->reflector;
             }
         }
     }

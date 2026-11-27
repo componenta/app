@@ -5,8 +5,9 @@ declare(strict_types=1);
 namespace Componenta\App\Config;
 
 use Closure;
-use Componenta\App\Build\PhpMapFile;
-use Componenta\App\Internal\BuildArtifact;
+use Componenta\App\Build\BuildStore;
+use Componenta\App\Build\PreparedBuild;
+use Componenta\App\ConfigKey as AppConfigKey;
 use Componenta\ClassFinder\ClassFinder;
 use Componenta\ClassFinder\ClassIterator;
 use Componenta\ClassFinder\ClassIteratorInterface;
@@ -30,12 +31,21 @@ final class ConfigFactory
         PathResolverInterface $paths,
         ConfigDefinitionInterface|callable $definition,
         ?Environment $environment = null,
+        bool $source = false,
+        array $requiredArtifacts = [],
     ): ConfigFactoryResult {
         $environment ??= new EnvLoader($paths->baseDir)->load();
+        $store = self::buildStore($paths, $environment, $requiredArtifacts);
+        $sourceOverride = $environment->bool('APP_DISCOVERY_SOURCE', false);
+        if (!$source && $sourceOverride && $requiredArtifacts !== []) {
+            throw new RuntimeException('APP_DISCOVERY_SOURCE conflicts with required artifacts; use explicit source bootstrap for preparation.');
+        }
+        // Decide before loading the definition or invoking any configuration provider.
+        $prepared = $source || $sourceOverride ? null : $store->load();
         $definition = self::definition($definition);
-        $source = null;
+        $sourceIterator = null;
         $discovered = null;
-        $generation = null;
+        $preparedDiscovery = false;
         $configuredDiscovery = $definition->discovery;
         if ($configuredDiscovery !== null) {
             // Capture and validate custom definitions before creating the lazy source.
@@ -44,24 +54,47 @@ final class ConfigFactory
                 self::resolveDirectories($paths, $discovery->directories),
                 $discovery->exclude,
             );
-            $prepared = $environment->bool('APP_DISCOVERY_SOURCE', false)
-                ? null
-                : self::preparedDiscovery($paths);
-            $discovered = $prepared['iterator'] ?? null;
-            $generation = $prepared['generation'] ?? null;
+            $discovered = $prepared === null ? null : self::preparedDiscovery($prepared);
+            $preparedDiscovery = $discovered !== null;
             if ($discovered === null) {
-                $source = $discovered = $createSource();
+                if ($prepared !== null && $requiredArtifacts !== []) {
+                    throw new RuntimeException('Published discovery is unusable; required artifacts prohibit falling back to a source bootstrap.');
+                }
+                $prepared = null;
+                $sourceIterator = $discovered = $createSource();
             } else {
-                $source = $createSource;
+                $sourceIterator = $createSource;
             }
         }
-        $providers = self::providers($definition, $discovered);
-        $providers[] = self::runtimeServices($paths, $discovered, $source, $generation);
+        $providerClasses = $prepared?->read(AppConfigKey::CONFIG_PROVIDERS_ARTIFACT);
+        if (!self::validProviderClasses($providerClasses)) {
+            if ($prepared !== null && in_array(AppConfigKey::CONFIG_PROVIDERS_ARTIFACT, $requiredArtifacts, true)) {
+                throw new RuntimeException('Required configuration provider artifact has an invalid class list.');
+            }
+            $providerClasses = null;
+        }
+        $providers = self::providers($definition, $discovered, $providerClasses);
+        $providers[] = self::runtimeServices($paths, $discovered, $sourceIterator, $store, $prepared, $preparedDiscovery);
         $composition = (new RuntimeConfigFactory())->create($environment, ...$providers);
 
         return new ConfigFactoryResult(
             composition: $composition,
             discovered: $discovered,
+        );
+    }
+
+    /** Bootstrap-level store configuration, deliberately independent of provider output. */
+    public static function buildStore(
+        PathResolverInterface $paths,
+        ?Environment $environment = null,
+        array $requiredArtifacts = [],
+    ): BuildStore {
+        $environment ??= new EnvLoader($paths->baseDir)->load();
+
+        return new BuildStore(
+            $paths->resolve(AppConfigKey::DEFAULT_CACHE_BUILD_DIR),
+            $environment->has('APP_BUILD_ID') ? $environment->string('APP_BUILD_ID') : null,
+            $requiredArtifacts,
         );
     }
 
@@ -90,12 +123,13 @@ final class ConfigFactory
     private static function providers(
         ConfigDefinitionInterface $definition,
         ?ClassIteratorInterface $discovered,
+        ?array $providerClasses,
     ): array {
         $providers = [];
         foreach ($definition->providers as $provider) {
             if ($provider instanceof ComposerPackageConfigProvider) {
                 foreach ($provider->materialize($provider->classes()) as $materialized) {
-                    $providers[] = self::prepareProvider($materialized, $discovered);
+                    $providers[] = self::prepareProvider($materialized, $discovered, $providerClasses);
                 }
                 continue;
             }
@@ -108,7 +142,7 @@ final class ConfigFactory
                 ));
             }
 
-            $providers[] = self::prepareProvider($provider, $discovered);
+            $providers[] = self::prepareProvider($provider, $discovered, $providerClasses);
         }
         return $providers;
     }
@@ -116,9 +150,14 @@ final class ConfigFactory
     private static function prepareProvider(
         callable $provider,
         ?ClassIteratorInterface $discovered,
+        ?array $providerClasses,
     ): callable {
-        return $provider instanceof DiscoveryAwareConfigProviderInterface
+        $provider = $provider instanceof DiscoveryAwareConfigProviderInterface
             ? $provider->withDiscovered($discovered)
+            : $provider;
+
+        return $provider instanceof AttributeConfigProvider && $providerClasses !== null
+            ? $provider->withPreparedProviders($providerClasses)
             : $provider;
     }
 
@@ -126,19 +165,22 @@ final class ConfigFactory
         PathResolverInterface $paths,
         ?ClassIteratorInterface $discovered,
         ClassIteratorInterface|Closure|null $source,
-        ?string $generation,
+        BuildStore $store,
+        ?PreparedBuild $prepared,
+        bool $preparedDiscovery,
     ): callable {
-        return static function () use ($paths, $discovered, $source, $generation): array {
+        return static function () use ($paths, $discovered, $source, $store, $prepared, $preparedDiscovery): array {
             $services = [
                 PathResolverInterface::class => $paths,
-                \Componenta\App\ConfigKey::DISCOVERY_PREPARED => $generation !== null,
+                BuildStore::class => $store,
+                AppConfigKey::DISCOVERY_PREPARED => $preparedDiscovery,
             ];
             $factories = [];
-            if ($generation !== null) {
-                $services[\Componenta\App\ConfigKey::DISCOVERY_GENERATION] = $generation;
+            if ($prepared !== null) {
+                $services[AppConfigKey::PREPARED_BUILD] = $prepared;
+                $services[PreparedBuild::class] = $prepared;
             }
             if ($discovered !== null) {
-                $factories[\Componenta\App\ConfigKey::BUILD_GENERATION] = BuildArtifact::newGeneration(...);
                 $services[ClassIteratorInterface::class] = $discovered;
                 if ($source instanceof Closure) {
                     $factories[\Componenta\App\ConfigKey::DISCOVERY_SOURCE] = $source;
@@ -156,23 +198,37 @@ final class ConfigFactory
         };
     }
 
-    /** @return array{iterator: ClassIteratorInterface, generation: string}|null */
-    private static function preparedDiscovery(PathResolverInterface $paths): ?array
+    private static function preparedDiscovery(PreparedBuild $build): ?ClassIteratorInterface
     {
-        $file = $paths->resolve(\Componenta\App\ConfigKey::DISCOVERY_MAP_FILE);
-        $artifact = BuildArtifact::unwrap(PhpMapFile::read($file));
-        if ($artifact === null) {
+        $map = $build->read(AppConfigKey::DISCOVERY_ARTIFACT);
+        if ($map === null) {
             return null;
         }
 
         try {
-            return [
-                'iterator' => ClassIterator::fromMap($artifact['payload']),
-                'generation' => $artifact['generation'],
-            ];
+            return ClassIterator::fromMap($map);
         } catch (\Throwable) {
             return null;
         }
+    }
+
+    private static function validProviderClasses(?array $classes): bool
+    {
+        if ($classes === null || !array_is_list($classes)) {
+            return false;
+        }
+        $seen = [];
+        foreach ($classes as $class) {
+            if (!is_string($class) || $class === '') {
+                return false;
+            }
+            $key = strtolower(ltrim($class, '\\'));
+            if ($key === '' || isset($seen[$key])) {
+                return false;
+            }
+            $seen[$key] = true;
+        }
+        return true;
     }
 
     /**

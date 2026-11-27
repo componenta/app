@@ -7,11 +7,12 @@ namespace Componenta\App\Build;
 interface ApplicationBuilderInterface
 {
     /**
-     * Build owned artifacts using constructor-injected source dependencies.
+     * Prepare artifacts using constructor-injected source dependencies.
      *
-     * Creating a builder must not perform the build or publish its artifacts.
-     * Each builder owns its output format, directories and atomic publication;
-     * it must not depend on outputs of other builders in the same run.
+     * Construction must not build. The participant owns payload schemas, while
+     * the context owns file placement and the store owns publication. Participants
+     * must not read outputs of another participant in the same run or write to
+     * an active generation. External effects are outside this artifact protocol.
      */
-    public function build(): void;
+    public function build(BuildContext $build): void;
 }

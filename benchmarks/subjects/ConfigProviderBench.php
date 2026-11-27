@@ -87,7 +87,7 @@ final class ConfigProviderBench
         try {
             if ($this->case === 'attributes') {
                 if (count($this->result->config->get('bench.discovered')) !== intdiv($params['count'] + 19, 20)
-                    || BenchmarkState::$autoloads !== $params['count']) {
+                    || BenchmarkState::$autoloads !== ($params['prepared'] ? intdiv($params['count'] + 19, 20) : $params['count'])) {
                     throw new LogicException('Attribute composition did not discover the expected providers.');
                 }
             } elseif ($this->result->config->get('bench.package_contributions') !== array_fill(0, $params['count'], true)) {

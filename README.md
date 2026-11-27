@@ -8,7 +8,7 @@ Application composition and startup for Componenta projects: configuration provi
 composer require componenta/app
 ~~~
 
-PHP 8.4 or later is required. Composer metadata exposes `Componenta\App\ConfigProvider`; `componenta/composer-plugin` adds it to the generated provider list.
+PHP 8.5.13 or later is required. Composer metadata exposes `Componenta\App\ConfigProvider`; `componenta/composer-plugin` adds it to the generated provider list.
 
 The provider registers `ApplicationBuildOrchestratorFactory`, the application and boot-target factories, `DateTimeBootloader`, `ClassDiscoveryBootloader`, and the `BootMethodInvocation` class listener. HTTP, CLI and WebSocket runtimes are supplied by their integration packages.
 
@@ -83,90 +83,87 @@ return (new ContainerFactory())->create(
 
 Runtime `Config` holds application settings; `DependencyDefinitions` holds DI registrations. The container receives the same Config instance. ConfigFactory invokes providers in both development and production.
 
-ConfigFactory registers `PathResolverInterface`. With discovery configured, it passes a shared `ClassIteratorInterface` to discovery-aware providers and runtime listeners. Without a build map, discovery reads the source files on each application startup; there is no development disk cache or freshness scan.
+ConfigFactory registers `PathResolverInterface` and `BuildStore`. With discovery configured, it selects a published `app.discovery` artifact or a shared source iterator. Prepared discovery avoids directory traversal and tokenization. Without a usable publication, ordinary startup uses source discovery without writing a runtime cache. `APP_ENV` does not select a different composition algorithm.
 
-`app:build` also runs `DiscoveryBuilder` and atomically writes `var/cache/build/classes.php`. Its ordered records preserve each declaration's source filename, fully qualified name, kind, and abstract/final/readonly flags, including multiple declarations from one file. `ClassIterator::fromMap()` reconstructs a normal `ClassIterator` from this map without traversing source directories or tokenizing files.
+The selected `PreparedBuild` is pinned once before configuration providers run. Optional consumers must check `ConfigKey::PREPARED_BUILD`, then resolve that service as `PreparedBuild`. Checking `has(PreparedBuild::class)` is insufficient with an autowiring container. All consumers of the selected snapshot read the same generation even if another build publishes concurrently.
 
-A usable map selects prepared discovery until it is removed or rebuilt, independently of `APP_ENV`. Changes to discovery inputs require another build. Missing or unusable maps fall back to the source without writing files at runtime. Set `APP_DISCOVERY_SOURCE=1` to force source discovery for a recovery startup, even if stale artifacts remain.
+`AttributeConfigProvider` still creates and invokes each provider on every configuration composition. The `app.config-providers` artifact is an ordered list of provider class names, not cached provider results. It avoids reflecting unrelated declarations while preserving provider order, lazy contributions and current runtime values. Missing metadata falls back to the selected discovery iterator. Build never rewrites `config/config.php` or snapshots the complete Config/DI container.
 
-The App discovery and boot maps carry a format version and a shared build generation. A boot map from a different generation, including an incomplete or interrupted rebuild, is ignored. Legacy unversioned App maps are ignored and can be rebuilt. Integration builders using `PhpMapFile` can write generation-bound maps with `PhpMapFile::write($file, $payload, $generation)` and read them with `PhpMapFile::read($file, $expectedGeneration)`. Obtain the build generation from `ConfigKey::BUILD_GENERATION` and the selected prepared generation from `ConfigKey::DISCOVERY_GENERATION` when that service exists. Each package still owns its payload format.
+Set `source: true` in `ConfigFactory::create()` or `APP_DISCOVERY_SOURCE=1` before bootstrap to ignore prepared metadata. Source selection happens before definition loading and provider invocation. Builders receive shared source discovery through `ConfigKey::DISCOVERY_SOURCE`; use a fresh source bootstrap for each build, rather than treating a reused container as a filesystem watcher.
 
-PHP maps are executable, trusted deployment artifacts. Store them outside the public web root in directories writable only by trusted deployment identities; never accept an uploaded or user-controlled map. The reader rejects symbolic-link map files and group/other-writable files on POSIX. Unusable maps that produce accidental output are rejected without emitting that output. Publish completed artifacts before starting or reloading workers.
+## Application build protocol
 
-`AttributeConfigProvider` stays in the application configuration and consumes the selected iterator. It continues finding and invoking configuration providers through the same attribute logic. `FileProvider` registrations and configuration merge order are unchanged. Build never edits `config/config.php`.
-
-Builders receive the current source iterator through `ConfigKey::DISCOVERY_SOURCE`, independently of the runtime map. With a prepared runtime map, this fresh source remains a lazy shared DI factory until requested. Rebuilds therefore do not copy the previous discovery snapshot.
-
-## Application builders
-
-`componenta/app-console` provides the ordinary console command:
-
-~~~bash
-php bin/console.php app:build
-~~~
-
-A builder implements `Componenta\App\Build\ApplicationBuilderInterface`:
+A participant owns its artifact IDs and payload schemas. It implements one interface:
 
 ~~~php
-namespace App\Build;
-
 use Componenta\App\Build\ApplicationBuilderInterface;
+use Componenta\App\Build\BuildContext;
 
-final class SearchIndexBuilder implements ApplicationBuilderInterface
+final readonly class MetadataBuilder implements ApplicationBuilderInterface
 {
-    public function __construct(private SearchIndexWriter $writer)
-    {
-    }
+    public function __construct(private MetadataSource $source) {}
 
-    public function build(): void
+    public function build(BuildContext $build): void
     {
-        $this->writer->rebuild();
+        $build->write('my-app.metadata', $this->source->metadata(), schemaVersion: 1);
     }
 }
 ~~~
 
-`SearchIndexWriter` is an application service responsible for the index format and publication. Construction prepares dependencies; `build()` performs the work.
+Register builder service IDs in `ConfigKey::BUILDERS`. DI factories inject source dependencies; constructors must not write artifacts. The orchestrator validates the entire ordered list and resolves every participant before invoking any `build()` method. Empty lists are valid and publish an empty generation.
 
-A package or application ConfigProvider registers service IDs:
+`BuildContext::write()` serializes synchronously into a private staging generation. Maps support arrays, scalars and enum cases. Unsupported runtime values fail immediately; a participant may catch a known portability error and call `skip($id, $reason)` to explicitly retain its source fallback. Other failures should propagate. A duplicate ID, invalid ID or write after publication is rejected. Participants cannot consume another participant's output during this run and must not write active files or perform external migrations through this protocol.
+
+Each successful run publishes a manifest and then atomically replaces `var/cache/build/current.json`. Until that last operation, new bootstraps continue seeing the previous complete generation. An exception stops subsequent participants and leaves the active publication unchanged. The protocol does not roll back arbitrary external effects. Files live under `var/cache/build/generations/<generation>/`; individual participants never choose these paths.
+
+The core artifacts are:
+
+| ID | Payload |
+| --- | --- |
+| `app.discovery` | Ordered declaration records with file, name, kind and modifiers |
+| `app.config-providers` | Ordered `#[AsConfig]` provider class names |
+| `app.boot` | Public method names carrying `#[Boot]`, grouped by class |
+
+Runtime integrations own additional IDs. Their readers use `PreparedBuild::read($id, $schemaVersion)`: an absent, skipped, unreadable or incompatible optional artifact returns `null` and permits the package's source fallback. The selected snapshot exposes skip reasons through `skipped()`.
+
+### Fresh build bootstrap
+
+`ApplicationBuildRunner` composes source configuration and a fresh DI container, then invokes the orchestrator. It changes to the application directory for composition and restores the caller's directory afterward. It never runs application bootloaders or `#[Boot]` methods. Consequently, a newly added `#[AsConfig]` provider can register a builder in the same build, even while an older generation is active.
 
 ~~~php
-namespace App;
+use Componenta\App\Build\ApplicationBuildRunner;
 
-use App\Build\SearchIndexBuilder;
-use Componenta\App\ConfigKey as AppConfigKey;
-use Componenta\Config\ConfigProvider as BaseConfigProvider;
-
-final class ConfigProvider extends BaseConfigProvider
-{
-    protected function getConfig(): array
-    {
-        return [
-            AppConfigKey::BUILDERS => [SearchIndexBuilder::class],
-        ];
-    }
-}
+$prepared = ApplicationBuildRunner::build(
+    paths: $paths,
+    definition: static fn () => require $paths->resolve('config/config.php'),
+);
 ~~~
 
-DI autowiring can create the builder. Register a factory with `getFactories()` when dependencies require explicit configuration, such as a metadata source or a path resolved through `PathResolverInterface`.
+`componenta/app-console` exposes this operation as `app:build`. Its early build dispatcher must run before the ordinary application runner, so stale runtime configuration or application boot effects cannot prevent the build command from starting. Invoking the orchestrator from an already prepared runtime container does not offer that freshness guarantee.
 
-`ApplicationBuildOrchestratorFactory` validates the entire ordered list: it must contain unique, non-empty string service IDs. It resolves every service and checks `ApplicationBuilderInterface` before any builder runs. An absent or empty list completes successfully.
+### Identity and required artifacts
 
-`ApplicationBuildOrchestrator::build()` calls builders in order. Each builder owns its artifact format, directories and atomic writes. An exception propagates unchanged and stops subsequent builders; completed effects remain. Builders work independently and receive shared source data through dependencies.
+Set `APP_BUILD_ID` to the same immutable release identity during build and runtime to bind the publication to that release. A different identity, including a missing identity where the build supplied one, rejects the publication. Without an explicit identity, the contract is that application sources, installed dependencies and build-affecting configuration remain immutable until the next build. No source tree hashes or modification-time scans are computed at startup. Do not copy artifacts between incompatible filesystem roots; declaration records preserve their source paths.
 
-BuildCommand and CleanCommand each receive a closure that resolves the orchestrator from the existing container. Each command calls its closure only in `execute()`. Thus `list` and `--help` leave builders unconstructed; ordinary application bootstrap still runs. Both commands are available in development and production, including before artifacts exist. Runtime services can use artifacts or fall back to source data; rebuilding is explicit.
-
-Builders may additionally implement `Componenta\App\Build\ApplicationBuildCleanerInterface`:
+Required artifacts are an explicit deployment policy, never inferred from `APP_ENV`:
 
 ~~~php
-interface ApplicationBuildCleanerInterface
-{
-    public function clean(): void;
-}
+$result = ConfigFactory::create(
+    paths: $paths,
+    definition: $definition,
+    requiredArtifacts: ['app.discovery', 'app.config-providers', 'router.routes'],
+);
 ~~~
 
-`ApplicationBuildOrchestrator::clean()` visits the same registered builders in order and calls only those implementing this interface. No separate registration is needed. The builder removes only artifacts it owns; already absent artifacts are a successful no-op. A failure propagates unchanged and stops later cleanup, leaving completed effects in place. Empty lists succeed. The orchestrator does not delete files itself.
+Pass the same list to `ApplicationBuildRunner::build(..., requiredArtifacts: [...])` to reject a missing or skipped artifact before publication. Explicit source build bootstrap ignores old publications while retaining this publication requirement. A runtime `APP_DISCOVERY_SOURCE=1` override combined with a nonempty required-artifact policy is rejected as contradictory; use the explicit source API for preparation or deliberately remove the runtime requirement for recovery. Runtime required-artifact checks reject missing publications, identity mismatches, unreadable payloads and incompatible schema versions. A strict deployment also rejects unusable core discovery instead of discarding the selected generation and bypassing required readers. The mutable current pointer is JSON data; immutable PHP manifests and payloads remain safe to cache with OPcache timestamp checks disabled. Each package remains responsible for validating its payload's domain structure. These checks do not prove application semantics; exercise the prepared runtime before activating a release.
 
-`app:build` builds and `app:clean` cleans. Both use the ordinary configuration and container, with existing maps when available. Cleaning does not recreate the current container; a subsequent process starts without the removed maps. The entrypoint does not inspect command names. To include newly discovered configuration providers in a rebuild, run `app:clean` and then `app:build` as separate processes.
+### Cleanup and deployment
+
+`ApplicationBuildRunner::clean($paths)` and `app:clean` remove only the current pointer. They do not instantiate builders or load artifact PHP. Existing workers retain their pinned generations; new bootstraps select source, or fail if their required-artifact policy demands a publication. Successful rebuilds need no preliminary clean.
+
+Old generations and failed staging generations are intentionally retained. Remove them offline only after no worker can still reference them, or retire the complete release directory. No online garbage collector is provided. `ApplicationBuildCleanerInterface` and participant-owned cleanup were removed.
+
+PHP artifacts are trusted executable deployment files. Keep the build directory outside the public web root and writable only by deployment identities. Readers reject symlink files and group/other-writable files on POSIX. Publish before starting or reloading workers. Legacy flat `classes.php`/`boot.php` maps are ignored; rebuild with the new protocol.
 
 ## Bootloaders and discovery
 
@@ -176,11 +173,11 @@ The ordered `ConfigKey::BOOTLOADERS` list registers unique bootloader class-stri
 
 `#[Boot]` marks public startup methods. `BootMethodInvocation` collects them once per discovered declaration and, when finalized, passes them to `BootInvocationRunner` for execution by descending priority. Repeated attributes on the same method retain their declared semantics. The listener releases its collected metadata when finalization starts and cannot be reused for another discovery pass. Explicit boot parameters can contain plain values or DI metadata: `EntryId` for a service, `Config` for a setting, and `Env` for an environment value.
 
-With discovery configured, `BootBuilder` writes `var/cache/build/boot.php`: each class maps to the ordered public methods carrying `#[Boot]`, including inherited methods. Attributes and nested parameter objects are instantiated natively at runtime. The map avoids enumerating all methods and skips autoloading declarations with no boot methods; missing, malformed or mismatched-generation maps use the original path. Source discovery ignores previous boot maps. Use `app:clean` to remove build artifacts before the next application startup needs fresh discovery.
+With discovery configured, `BootBuilder` contributes `app.boot`: each class maps to the ordered public methods carrying `#[Boot]`, including inherited methods. Attributes and nested parameter objects are instantiated natively at runtime. The map avoids enumerating all methods and skips autoloading declarations with no boot methods; missing or malformed optional metadata uses the original path. Source bootstrap ignores the published boot metadata. Actual boot attributes and their parameter objects remain runtime-owned.
 
 ## Cache paths
 
-Concrete builders receive their artifact paths through their factories using `PathResolverInterface`. The discovery map path is `ConfigKey::DISCOVERY_MAP_FILE`. Each builder removes its own artifacts when implementing the optional cleanup contract.
+BuildStore owns artifact placement under `ConfigKey::DEFAULT_CACHE_BUILD_DIR`. Development and runtime caches are separate from build generations.
 
 ## Runtime integrations
 
@@ -202,6 +199,6 @@ vendor/bin/phpbench run --filter=StartupBench --report=aggregate
 vendor/bin/phpbench run --filter=RuntimeBench --report=aggregate
 ```
 
-The suite measures cold configuration, container creation, discovery, boot discovery and complete startup with 300 and 1,000 declarations in source and prepared modes; attribute and Composer package configuration composition; build and cleanup; and warm runtime service resolution, boot target creation, bootloader selection, DI boot parameter resolution and the runner without discovery. Fixture preparation and behavioral checks run outside the measured subjects. Attribute configuration deliberately scans all declared classes; its cost is reported separately rather than assuming that prepared boot metadata eliminates every reflection cost. Prepared artifacts are produced in a separate PHP process using the real builders, so they do not warm the measured process. Cold subjects use one revolution per isolated iteration; warm subjects use repeated revolutions. CLI OPcache and Xdebug are disabled by default. The aggregate report contains time, memory and variation; CI runs a shorter sample without timing thresholds.
+The suite measures cold configuration, container creation, discovery, boot discovery and complete startup with 300 and 1,000 declarations in source and prepared modes; attribute and Composer package configuration composition; build and cleanup; and warm runtime service resolution, boot target creation, bootloader selection, DI boot parameter resolution and the runner without discovery. Fixture preparation and behavioral checks run outside the measured subjects. Attribute configuration has separate source and prepared subjects: the prepared provider index must autoload only matching providers, while source composition scans declarations. Prepared artifacts are produced in a separate PHP process using the real builders, so they do not warm the measured process. Cold subjects use one revolution per isolated iteration; warm subjects use repeated revolutions. CLI OPcache and Xdebug are disabled by default. The aggregate report contains time, memory and variation; CI runs a shorter sample without timing thresholds.
 
 Use `vendor/bin/phpbench run --tag=baseline --report=aggregate` to store a baseline and `vendor/bin/phpbench run --ref=baseline --report=aggregate` to compare a subsequent run on the same machine. These synthetic measurements exclude process startup itself and application-specific HTTP I/O; they are not TTFB measurements.

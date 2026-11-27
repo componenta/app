@@ -20,6 +20,8 @@ use Componenta\App\Build\ApplicationBuildOrchestrator;
 use Componenta\App\Build\ApplicationBuildOrchestratorFactory;
 use Componenta\App\Build\DiscoveryBuilder;
 use Componenta\App\Build\DiscoveryBuilderFactory;
+use Componenta\App\Build\ConfigProviderBuilder;
+use Componenta\App\Build\ConfigProviderBuilderFactory;
 use Componenta\App\Config\DiscoveryAwareConfigProviderInterface;
 use Componenta\ClassFinder\ConfigKey as ClassFinderConfigKey;
 use Componenta\ClassFinder\ClassIteratorInterface;
@@ -42,6 +44,7 @@ final class ConfigProvider extends BaseConfigProvider implements DiscoveryAwareC
         return [
             ApplicationBuildOrchestrator::class => ApplicationBuildOrchestratorFactory::class,
             DiscoveryBuilder::class => DiscoveryBuilderFactory::class,
+            ConfigProviderBuilder::class => ConfigProviderBuilderFactory::class,
             BootBuilder::class => BootBuilderFactory::class,
             BootMethodInvocation::class => BootMethodInvocationFactory::class,
         ];
@@ -60,7 +63,9 @@ final class ConfigProvider extends BaseConfigProvider implements DiscoveryAwareC
     protected function getConfig(): array
     {
         return [
-            ConfigKey::BUILDERS => $this->discovered !== null ? [DiscoveryBuilder::class, BootBuilder::class] : [],
+            ConfigKey::BUILDERS => $this->discovered !== null
+                ? [DiscoveryBuilder::class, ConfigProviderBuilder::class, BootBuilder::class]
+                : [],
             ConfigKey::BOOTLOADERS => [
                 DateTimeBootloader::class,
                 ClassDiscoveryBootloader::class,

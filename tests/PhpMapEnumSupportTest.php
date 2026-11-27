@@ -18,7 +18,7 @@ it('preserves enum cases in generation-bound trusted maps', function (): void {
         expect(PhpMapFile::read($file, $generation))->toBe($payload)
             ->and(PhpMapFile::read($file, str_repeat('b', 32)))->toBeNull();
         expect(fn () => PhpMapFile::write($file, ['object' => new stdClass()], $generation))
-            ->toThrow(Componenta\VarExport\Exception\ExceptionInterface::class);
+            ->toThrow(Componenta\VarExport\Exception\ExportException::class);
         expect(PhpMapFile::read($file, $generation))->toBe($payload);
     } finally {
         PhpMapFile::remove($file);

@@ -270,7 +270,7 @@ it('uses source discovery when the prepared map is missing or unusable without w
     $root = appConfigFactoryRoot('map_fallback');
     try {
         file_put_contents($root . '/src/Current.php', '<?php final class MapFallbackCurrent {}');
-        $mapFile = $root . '/var/cache/build/classes.php';
+        $mapFile = $root . '/var/cache/build/current.json';
         if ($artifact !== null) {
             mkdir(dirname($mapFile), 0700, true);
             file_put_contents($mapFile, $artifact);
@@ -307,7 +307,7 @@ it('lets the application override the builder list contributed by the App provid
         $container->get(\Componenta\App\Build\ApplicationBuildOrchestrator::class)->build();
 
         expect($result->config->get(\Componenta\App\ConfigKey::BUILDERS))->toBe([])
-            ->and(is_dir($root . '/var'))->toBeFalse();
+            ->and($container->get(\Componenta\App\Build\BuildStore::class)->load())->toBeInstanceOf(\Componenta\App\Build\PreparedBuild::class);
     } finally {
         removeAppConfigFactoryRoot($root);
     }

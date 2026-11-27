@@ -27,18 +27,17 @@ class ConfigKey extends \Componenta\Config\ConfigKey
     /** Shared lazy discovery of current source files, independent of the runtime class map. */
     public const string DISCOVERY_SOURCE = 'app.discovery.source';
 
-    public const string DISCOVERY_MAP_FILE = 'var/cache/build/classes.php';
+    /** Optional selected snapshot. Guard this service ID, not an autowireable class name. */
+    public const string PREPARED_BUILD = 'app.build.prepared';
+
+    public const string DISCOVERY_ARTIFACT = 'app.discovery';
+
+    public const string CONFIG_PROVIDERS_ARTIFACT = 'app.config-providers';
 
     /** DI service indicating that runtime discovery came from a valid map. */
     public const string DISCOVERY_PREPARED = 'app.discovery.prepared';
 
-    /** Generation of the selected prepared discovery map. */
-    public const string DISCOVERY_GENERATION = 'app.discovery.generation';
-
-    /** Shared generation for the fresh source snapshot used by builders. */
-    public const string BUILD_GENERATION = 'app.build.generation';
-
-    public const string BOOT_MAP_FILE = 'var/cache/build/boot.php';
+    public const string BOOT_ARTIFACT = 'app.boot';
 
     /**
      * Ordered list of bootloader class-strings driving the application's
@@ -61,8 +60,7 @@ class ConfigKey extends \Componenta\Config\ConfigKey
     /**
      * Cache directory paths (relative to PathResolverInterface::baseDir or absolute).
      *
-     * Each builder factory selects its own artifact path.
-     * The defaults below are also used by the cache clearing command.
+     * Build artifacts belong to the store; development/runtime caches are separate.
      */
     public const string CACHE_DEV_DIR = 'cache.dev_dir';
     public const string CACHE_RUNTIME_DIR = 'cache.runtime_dir';

@@ -4,13 +4,15 @@ declare(strict_types=1);
 
 namespace Componenta\App\Build;
 
+use Throwable;
+
 final readonly class ApplicationBuildOrchestrator
 {
     /** @var list<ApplicationBuilderInterface> */
     private array $builders;
 
     /** @param iterable<ApplicationBuilderInterface> $builders */
-    public function __construct(iterable $builders)
+    public function __construct(iterable $builders, private BuildStore $store)
     {
         $items = [];
         $seen = [];
@@ -28,19 +30,23 @@ final readonly class ApplicationBuildOrchestrator
         $this->builders = $items;
     }
 
-    public function build(): void
+    public function build(): PreparedBuild
     {
-        foreach ($this->builders as $builder) {
-            $builder->build();
+        $build = $this->store->begin();
+        try {
+            foreach ($this->builders as $builder) {
+                $builder->build($build);
+            }
+
+            return $this->store->publish($build);
+        } catch (Throwable $failure) {
+            $this->store->abandon($build);
+            throw $failure;
         }
     }
 
     public function clean(): void
     {
-        foreach ($this->builders as $builder) {
-            if ($builder instanceof ApplicationBuildCleanerInterface) {
-                $builder->clean();
-            }
-        }
+        $this->store->clean();
     }
 }

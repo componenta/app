@@ -62,6 +62,6 @@ final class ApplicationBuildOrchestratorFactory
             $builders[] = $builder;
         }
 
-        return new ApplicationBuildOrchestrator($builders);
+        return new ApplicationBuildOrchestrator($builders, $container->get(BuildStore::class, BuildStore::class));
     }
 }

@@ -4,24 +4,17 @@ declare(strict_types=1);
 
 namespace Componenta\App\Build;
 
-use Componenta\App\Internal\BuildArtifact;
+use Componenta\App\ConfigKey;
 use Componenta\ClassFinder\ClassIteratorInterface;
 
-final readonly class DiscoveryBuilder implements ApplicationBuilderInterface, ApplicationBuildCleanerInterface
+final readonly class DiscoveryBuilder implements ApplicationBuilderInterface
 {
     public function __construct(
         private ClassIteratorInterface $classes,
-        private string $file,
-        private ?string $generation = null,
     ) {
     }
 
-    public function clean(): void
-    {
-        PhpMapFile::remove($this->file);
-    }
-
-    public function build(): void
+    public function build(BuildContext $build): void
     {
         $map = [];
         foreach ($this->classes as $file => $class) {
@@ -35,9 +28,6 @@ final readonly class DiscoveryBuilder implements ApplicationBuilderInterface, Ap
             ];
         }
 
-        PhpMapFile::write($this->file, BuildArtifact::wrap(
-            $this->generation ?? BuildArtifact::newGeneration(),
-            $map,
-        ));
+        $build->write(ConfigKey::DISCOVERY_ARTIFACT, $map);
     }
 }

@@ -3,7 +3,9 @@
 declare(strict_types=1);
 
 use Componenta\App\Build\ApplicationBuilderInterface;
-use Componenta\App\Build\ApplicationBuildCleanerInterface;
+use Componenta\App\Build\BuildContext;
+use Componenta\App\Build\BuildStore;
+use Componenta\App\Build\PreparedBuild;
 use Componenta\App\Build\ApplicationBuildOrchestrator;
 use Componenta\App\Build\ApplicationBuildOrchestratorFactory;
 use Componenta\App\ConfigKey as AppConfigKey;
@@ -16,6 +18,28 @@ use Componenta\Config\ContainerValue;
 use Componenta\Config\Environment;
 use Componenta\DI\ContainerFactory;
 use Componenta\DI\Exception\NotFoundException;
+
+final class ApplicationBuildTestStorage
+{
+    public static array $roots = [];
+}
+
+function applicationBuildTestStore(): BuildStore
+{
+    $root = sys_get_temp_dir() . '/app_orchestrator_' . bin2hex(random_bytes(8));
+    ApplicationBuildTestStorage::$roots[] = $root;
+    return new BuildStore($root);
+}
+
+afterEach(function (): void {
+    foreach (ApplicationBuildTestStorage::$roots as $root) {
+        if (!is_dir($root)) { continue; }
+        $entries = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST);
+        foreach ($entries as $entry) { $entry->isDir() ? rmdir($entry->getPathname()) : unlink($entry->getPathname()); }
+        rmdir($root);
+    }
+    ApplicationBuildTestStorage::$roots = [];
+});
 
 final class ApplicationBuildTestSource
 {
@@ -38,7 +62,7 @@ final class ApplicationBuildFirstTestBuilder implements ApplicationBuilderInterf
         $source->constructed[] = 'first';
     }
 
-    public function build(): void
+    public function build(BuildContext $build): void
     {
         $this->source->built[] = 'first:' . $this->source->value;
         $this->source->configs[] = $this->config;
@@ -54,7 +78,7 @@ final class ApplicationBuildSecondTestBuilder implements ApplicationBuilderInter
         $source->constructed[] = 'second';
     }
 
-    public function build(): void
+    public function build(BuildContext $build): void
     {
         $this->source->built[] = 'second:' . $this->source->value;
         $this->source->configs[] = $this->config;
@@ -67,6 +91,7 @@ function applicationBuildTestContainer(callable ...$providers): ContainerValue
     $composition = (new ConfigFactory())->create(
         new Environment(['APP_ENV' => 'production']),
         new AppConfigProvider(),
+        static fn (): array => [ConfigKey::DEPENDENCIES => [ConfigKey::SERVICES => [BuildStore::class => applicationBuildTestStore()]]],
         ...$providers,
     );
 
@@ -200,7 +225,7 @@ it('accepts an absent or empty builder list', function (array $configuration): v
     $container = applicationBuildTestContainer(static fn (): array => $configuration);
     $orchestrator = $container->get(ApplicationBuildOrchestrator::class);
 
-    expect($orchestrator->build())->toBeNull();
+    expect($orchestrator->build())->toBeInstanceOf(PreparedBuild::class);
     expect($orchestrator->clean())->toBeNull();
 })->with([
     'absent' => [[]],
@@ -213,13 +238,13 @@ it('preserves completed effects and propagates the original failure without runn
     $builder = static fn (Closure $action): ApplicationBuilderInterface =>
         new class($action) implements ApplicationBuilderInterface {
             public function __construct(private Closure $action) {}
-            public function build(): void { ($this->action)(); }
+            public function build(BuildContext $build): void { ($this->action)(); }
         };
     $orchestrator = new ApplicationBuildOrchestrator([
         $builder(static function () use ($effects): void { $effects[] = 'completed'; }),
         $builder(static function () use ($failure): never { throw $failure; }),
         $builder(static function () use ($effects): void { $effects[] = 'unreachable'; }),
-    ]);
+    ], applicationBuildTestStore());
 
     try {
         $orchestrator->build();
@@ -231,85 +256,17 @@ it('preserves completed effects and propagates the original failure without runn
     expect($effects->getArrayCopy())->toBe(['completed']);
 });
 
-it('cleans only participating builders in registration order without building', function (): void {
-    $effects = new ArrayObject();
-    $cleaner = static fn (string $name): ApplicationBuilderInterface =>
-        new class($effects, $name) implements ApplicationBuilderInterface, ApplicationBuildCleanerInterface {
-            public function __construct(private ArrayObject $effects, private string $name) {}
-            public function build(): void { throw new LogicException('Clean must not build.'); }
-            public function clean(): void { $this->effects[] = $this->name; }
-        };
-    $buildOnly = new class implements ApplicationBuilderInterface {
-        public function build(): void { throw new LogicException('Clean must not build.'); }
-    };
-    $container = applicationBuildTestContainer(static fn (): array => [
-        AppConfigKey::BUILDERS => ['first.cleaner', 'build.only', 'second.cleaner'],
-        ConfigKey::DEPENDENCIES => [ConfigKey::SERVICES => [
-            'first.cleaner' => $cleaner('first'),
-            'build.only' => $buildOnly,
-            'second.cleaner' => $cleaner('second'),
-        ]],
-    ]);
-
-    $container->get(ApplicationBuildOrchestrator::class)->clean();
-
-    expect($effects->getArrayCopy())->toBe(['first', 'second']);
-});
-
-it('preserves completed cleanup and propagates the original failure without cleaning later builders', function (): void {
-    $artifacts = new ArrayObject(['first' => true, 'last' => true]);
-    $failure = new DomainException('Cleanup failed');
-    $builder = static fn (Closure $action): ApplicationBuilderInterface =>
-        new class($action) implements ApplicationBuilderInterface, ApplicationBuildCleanerInterface {
-            public function __construct(private Closure $action) {}
-            public function build(): void { throw new LogicException('Clean must not build.'); }
-            public function clean(): void { ($this->action)(); }
-        };
-    $orchestrator = new ApplicationBuildOrchestrator([
-        $builder(static function () use ($artifacts): void { unset($artifacts['first']); }),
-        $builder(static function () use ($failure): never { throw $failure; }),
-        $builder(static function () use ($artifacts): void { unset($artifacts['last']); }),
-    ]);
-
-    try {
-        $orchestrator->clean();
-        test()->fail('The cleanup failure must propagate.');
-    } catch (DomainException $caught) {
-        expect($caught)->toBe($failure);
-    }
-
-    expect($artifacts->getArrayCopy())->toBe(['last' => true]);
-});
-
-
-it('replays a generator of builders for repeated build and clean operations', function (): void {
-    $builder = new class implements ApplicationBuilderInterface, ApplicationBuildCleanerInterface {
-        public array $operations = [];
-        public function build(): void { $this->operations[] = 'build'; }
-        public function clean(): void { $this->operations[] = 'clean'; }
-    };
-    $orchestrator = new ApplicationBuildOrchestrator((static function () use ($builder): Generator {
-        yield $builder;
-    })());
-
-    $orchestrator->build();
-    $orchestrator->clean();
-    $orchestrator->build();
-
-    expect($builder->operations)->toBe(['build', 'clean', 'build']);
-});
-
 it('rejects an invalid builder from a direct constructor before executing any builder', function (): void {
     expect(fn () => new ApplicationBuildOrchestrator((static function (): Generator {
         yield new stdClass();
-    })()))->toThrow(InvalidArgumentException::class);
+    })(), applicationBuildTestStore()))->toThrow(InvalidArgumentException::class);
 });
 
 
 it('rejects multiple builder service IDs resolving to the same instance before any build or cleanup', function (): void {
-    $builder = new class implements ApplicationBuilderInterface, ApplicationBuildCleanerInterface {
+    $builder = new class implements ApplicationBuilderInterface {
         public int $operations = 0;
-        public function build(): void { ++$this->operations; }
+        public function build(BuildContext $build): void { ++$this->operations; }
         public function clean(): void { ++$this->operations; }
     };
     $container = applicationBuildTestContainer(static fn (): array => [
@@ -321,7 +278,7 @@ it('rejects multiple builder service IDs resolving to the same instance before a
 
     expect(fn () => (new ApplicationBuildOrchestratorFactory())($container))
         ->toThrow(InvalidArgumentException::class, 'same application builder instance');
-    expect(fn () => new ApplicationBuildOrchestrator([$builder, $builder]))
+    expect(fn () => new ApplicationBuildOrchestrator([$builder, $builder], applicationBuildTestStore()))
         ->toThrow(InvalidArgumentException::class, 'same application builder instance');
     expect($builder->operations)->toBe(0);
 });
@@ -329,10 +286,10 @@ it('rejects multiple builder service IDs resolving to the same instance before a
 it('allows distinct instances of the same builder class to represent independent build targets', function (): void {
     $make = static fn () => new class implements ApplicationBuilderInterface {
         public int $calls = 0;
-        public function build(): void { ++$this->calls; }
+        public function build(BuildContext $build): void { ++$this->calls; }
     };
     $first = $make();
     $second = $make();
-    (new ApplicationBuildOrchestrator([$first, $second]))->build();
+    (new ApplicationBuildOrchestrator([$first, $second], applicationBuildTestStore()))->build();
     expect($first->calls)->toBe(1)->and($second->calls)->toBe(1);
 });

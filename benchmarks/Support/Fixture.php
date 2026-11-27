@@ -213,10 +213,13 @@ final class Fixture
 
     public function assertArtifacts(bool $present): void
     {
-        foreach ([ConfigKey::DISCOVERY_MAP_FILE, ConfigKey::BOOT_MAP_FILE] as $file) {
-            clearstatcache(true, $this->root . '/' . $file);
-            if (is_file($this->root . '/' . $file) !== $present) {
-                throw new LogicException('Unexpected artifact state: ' . $file);
+        $prepared = (new \Componenta\App\Build\BuildStore($this->root . '/var/cache/build'))->load();
+        if (($prepared !== null) !== $present) {
+            throw new LogicException('Unexpected publication state.');
+        }
+        if ($prepared !== null) {
+            foreach ([ConfigKey::DISCOVERY_ARTIFACT, ConfigKey::BOOT_ARTIFACT, ConfigKey::CONFIG_PROVIDERS_ARTIFACT] as $id) {
+                if ($prepared->read($id) === null) { throw new LogicException('Missing artifact: ' . $id); }
             }
         }
     }

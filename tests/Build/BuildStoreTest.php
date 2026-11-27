@@ -1,0 +1,208 @@
+<?php
+
+declare(strict_types=1);
+
+use Componenta\App\Build\ApplicationBuildOrchestrator;
+use Componenta\App\Build\ApplicationBuilderInterface;
+use Componenta\App\Build\BuildContext;
+use Componenta\App\Build\BuildStore;
+
+function removeBuildStoreTestRoot(string $root): void
+{
+    if (!is_dir($root)) { return; }
+    $entries = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST);
+    foreach ($entries as $entry) {
+        $entry->isDir() && !$entry->isLink() ? rmdir($entry->getPathname()) : unlink($entry->getPathname());
+    }
+    rmdir($root);
+}
+
+it('publishes complete generations and pins readers across rebuild and clean', function (): void {
+    $root = sys_get_temp_dir() . '/app_build_store_' . bin2hex(random_bytes(8));
+    $store = new BuildStore($root, 'release-a');
+    try {
+        expect($store->load())->toBeNull();
+        $first = $store->begin();
+        $first->write('test.routes', ['route' => 'old']);
+        $first->write('test.commands', ['command' => 'old'], 2);
+        expect($store->load())->toBeNull();
+        $pinned = $store->publish($first);
+        expect($pinned->read('test.routes'))->toBe(['route' => 'old'])
+            ->and($pinned->read('test.commands'))->toBeNull()
+            ->and($pinned->read('test.commands', 2))->toBe(['command' => 'old']);
+
+        $second = $store->begin();
+        $second->write('test.routes', ['route' => 'new']);
+        $second->skip('test.commands', 'contains a runtime closure');
+        expect($store->load()->read('test.routes'))->toBe(['route' => 'old']);
+        $published = $store->publish($second);
+        expect($published->generation)->not->toBe($pinned->generation)
+            ->and($store->load()->read('test.routes'))->toBe(['route' => 'new'])
+            ->and($published->read('test.commands'))->toBeNull()
+            ->and($published->skipped())->toBe(['test.commands' => 'contains a runtime closure'])
+            ->and($pinned->read('test.routes'))->toBe(['route' => 'old']);
+
+        $store->clean();
+        $store->clean();
+        expect($store->load())->toBeNull()
+            ->and($pinned->read('test.routes'))->toBe(['route' => 'old'])
+            ->and($published->read('test.routes'))->toBe(['route' => 'new']);
+    } finally { removeBuildStoreTestRoot($root); }
+});
+
+it('keeps the old published generation when a later participant fails', function (): void {
+    $root = sys_get_temp_dir() . '/app_build_failure_' . bin2hex(random_bytes(8));
+    $store = new BuildStore($root);
+    try {
+        $old = $store->begin();
+        $old->write('test.one', ['old']);
+        $published = $store->publish($old);
+        $failure = new DomainException('second failed');
+        $first = new class implements ApplicationBuilderInterface {
+            public ?BuildContext $context = null;
+            public function build(BuildContext $build): void
+            {
+                $this->context = $build;
+                $build->write('test.one', ['new']);
+            }
+        };
+        $second = new class($failure) implements ApplicationBuilderInterface {
+            public function __construct(private Throwable $failure) {}
+            public function build(BuildContext $build): void { throw $this->failure; }
+        };
+        $orchestrator = new ApplicationBuildOrchestrator([$first, $second], $store);
+        try { $orchestrator->build(); test()->fail('Failure must propagate.'); }
+        catch (DomainException $caught) { expect($caught)->toBe($failure); }
+        expect($store->load()->generation)->toBe($published->generation)
+            ->and($store->load()->read('test.one'))->toBe(['old']);
+        expect(fn () => $first->context->write('test.late', []))->toThrow(LogicException::class, 'closed');
+    } finally { removeBuildStoreTestRoot($root); }
+});
+
+it('rejects duplicate and unsafe artifact IDs and closes published contexts', function (): void {
+    $root = sys_get_temp_dir() . '/app_build_context_' . bin2hex(random_bytes(8));
+    $store = new BuildStore($root);
+    try {
+        $build = $store->begin();
+        foreach (['../escape', '/absolute', 'a/b', 'a..b', ''] as $id) {
+            expect(fn () => $build->write($id, []))->toThrow(InvalidArgumentException::class);
+        }
+        expect(fn () => $build->write('test.bad', [], 0))->toThrow(InvalidArgumentException::class);
+        $build->write('test.same', []);
+        expect(fn () => $build->skip('test.same', 'duplicate'))->toThrow(LogicException::class);
+        $build->skip('test.skipped', 'reason');
+        expect(fn () => $build->write('test.skipped', []))->toThrow(LogicException::class);
+        $store->publish($build);
+        expect(fn () => $build->write('test.after', []))->toThrow(LogicException::class)
+            ->and(fn () => $store->publish($build))->toThrow(LogicException::class);
+    } finally { removeBuildStoreTestRoot($root); }
+});
+
+it('allows explicit skip after a synchronous portability failure', function (): void {
+    $root = sys_get_temp_dir() . '/app_build_export_' . bin2hex(random_bytes(8));
+    $store = new BuildStore($root);
+    $resource = fopen('php://memory', 'r+');
+    try {
+        $build = $store->begin();
+        expect(fn () => $build->write('test.runtime', ['resource' => $resource]))->toThrow(Componenta\VarExport\Exception\ExportException::class);
+        $build->skip('test.runtime', 'resource is runtime-owned');
+        $prepared = $store->publish($build);
+        expect($prepared->read('test.runtime'))->toBeNull()
+            ->and($prepared->skipped())->toBe(['test.runtime' => 'resource is runtime-owned']);
+    } finally { fclose($resource); removeBuildStoreTestRoot($root); }
+});
+
+it('enforces explicit required artifacts without changing the prior publication', function (): void {
+    $root = sys_get_temp_dir() . '/app_build_required_' . bin2hex(random_bytes(8));
+    $store = new BuildStore($root, 'release-a', ['test.required']);
+    try {
+        expect(fn () => $store->load())->toThrow(RuntimeException::class, 'required');
+        $first = $store->begin();
+        $first->write('test.required', [], 3);
+        $published = $store->publish($first);
+        expect(fn () => $published->read('test.required', 1))->toThrow(RuntimeException::class, 'incompatible schema');
+        $next = $store->begin();
+        $next->skip('test.required', 'not portable');
+        expect(fn () => $store->publish($next))->toThrow(RuntimeException::class, 'test.required');
+        expect($store->load()->generation)->toBe($published->generation);
+        unlink($root . '/generations/' . $published->generation . '/test.required.php');
+        expect(fn () => $store->load())->toThrow(RuntimeException::class, 'test.required');
+    } finally { removeBuildStoreTestRoot($root); }
+});
+
+it('binds explicit release identities and rejects malformed manifests without scanning source', function (): void {
+    $root = sys_get_temp_dir() . '/app_build_identity_' . bin2hex(random_bytes(8));
+    try {
+        $store = new BuildStore($root, 'release-a');
+        $prepared = $store->publish($store->begin());
+        expect((new BuildStore($root, 'release-a'))->load()->generation)->toBe($prepared->generation)
+            ->and((new BuildStore($root, 'release-b'))->load())->toBeNull()
+            ->and((new BuildStore($root))->load())->toBeNull();
+        $manifest = $root . '/generations/' . $prepared->generation . '/manifest.php';
+        file_put_contents($manifest, '<?php return ["version" => 1, "generation" => "' . $prepared->generation . '", "identity" => "release-a", "artifacts" => ["../escape" => ["state" => "written", "schema" => 1]]];');
+        expect($store->load())->toBeNull();
+        file_put_contents($root . '/current.json', '{"version":1,"generation":"../../escape"}');
+        expect($store->load())->toBeNull();
+    } finally { removeBuildStoreTestRoot($root); }
+});
+
+it('cleans without loading the pointer and refuses a directory in its place', function (): void {
+    $root = sys_get_temp_dir() . '/app_build_clean_' . bin2hex(random_bytes(8));
+    mkdir($root, 0700, true);
+    $store = new BuildStore($root);
+    try {
+        file_put_contents($root . '/current.json', '<?php throw new LogicException("must not execute");');
+        $store->clean();
+        mkdir($root . '/current.json');
+        file_put_contents($root . '/current.json/keep', 'preserved');
+        expect(fn () => $store->clean())->toThrow(RuntimeException::class)
+            ->and(file_get_contents($root . '/current.json/keep'))->toBe('preserved');
+    } finally { removeBuildStoreTestRoot($root); }
+});
+
+it('observes another process publication with OPcache timestamp validation disabled', function (): void {
+    if (!extension_loaded('Zend OPcache')) { test()->markTestSkipped('Requires OPcache.'); }
+    $root = sys_get_temp_dir() . '/app_build_opcache_' . bin2hex(random_bytes(8));
+    try {
+        $process = proc_open([
+            PHP_BINARY, '-d', 'opcache.enable_cli=1', '-d', 'opcache.file_update_protection=0',
+            '-d', 'opcache.validate_timestamps=0', __DIR__ . '/../Fixtures/cross-process-build.php',
+            dirname(__DIR__, 2) . '/vendor/autoload.php', $root,
+        ], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+        expect(is_resource($process))->toBeTrue();
+        $output = stream_get_contents($pipes[1]);
+        $errors = stream_get_contents($pipes[2]);
+        fclose($pipes[1]); fclose($pipes[2]);
+        expect(proc_close($process))->toBe(0, $errors)
+            ->and(json_decode($output, true, flags: JSON_THROW_ON_ERROR))->toBe([
+                'freshGenerationMatches' => true,
+                'new' => ['value' => 'new'],
+                'pinned' => ['value' => 'old'],
+            ]);
+    } finally { removeBuildStoreTestRoot($root); }
+});
+
+it('reads the mutable pointer as data and retains file trust checks', function (): void {
+    $root = sys_get_temp_dir() . '/app_build_pointer_' . bin2hex(random_bytes(8));
+    $store = new BuildStore($root);
+    try {
+        $prepared = $store->publish($store->begin());
+        $file = $root . '/current.json';
+        $valid = file_get_contents($file);
+        $GLOBALS['buildPointerExecuted'] = false;
+        file_put_contents($file, '<?php $GLOBALS["buildPointerExecuted"] = true; return [];');
+        expect($store->load())->toBeNull()->and($GLOBALS['buildPointerExecuted'])->toBeFalse();
+        file_put_contents($file, $valid);
+        if (DIRECTORY_SEPARATOR === '/') {
+            chmod($file, 0666);
+            expect($store->load())->toBeNull();
+            chmod($file, 0644);
+            rename($file, $root . '/pointer-data.json');
+            symlink($root . '/pointer-data.json', $file);
+            expect($store->load())->toBeNull();
+            unlink($file);
+            rename($root . '/pointer-data.json', $file);
+        }
+        expect($store->load()->generation)->toBe($prepared->generation);
+    } finally { unset($GLOBALS['buildPointerExecuted']); removeBuildStoreTestRoot($root); }
+});
