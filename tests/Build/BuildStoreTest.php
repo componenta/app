@@ -394,3 +394,35 @@ it('uses absolute storage without requiring an available current working directo
     }
 });
 
+it('keeps selected artifacts on their release when a deployment directory alias changes', function (): void {
+    if (DIRECTORY_SEPARATOR !== '/') { test()->markTestSkipped('Requires POSIX directory symlinks.'); }
+    $root = sys_get_temp_dir() . '/app_build_release_alias_' . bin2hex(random_bytes(8));
+    mkdir($root . '/first', 0700, true);
+    mkdir($root . '/second', 0700, true);
+    $alias = $root . '/current';
+    symlink($root . '/first', $alias);
+    $store = new BuildStore($alias . '/cache');
+    try {
+        $first = $store->begin();
+        $first->write('test.data', ['value' => 'first release']);
+        $published = $store->publish($first);
+        $loaded = $store->load();
+
+        $nextStore = new BuildStore($root . '/second/cache');
+        $next = $nextStore->begin();
+        $next->write('test.data', ['value' => 'second release']);
+        $nextPublished = $nextStore->publish($next);
+        unlink($alias);
+        symlink($root . '/second', $alias);
+        clearstatcache(true);
+
+        expect($published->read('test.data'))->toBe(['value' => 'first release'])
+            ->and($loaded->read('test.data'))->toBe(['value' => 'first release'])
+            ->and($store->load()?->generation)->toBe($nextPublished->generation)
+            ->and($store->load()?->read('test.data'))->toBe(['value' => 'second release']);
+        $store->clean();
+        expect($nextStore->load())->toBeNull()
+            ->and($published->read('test.data'))->toBe(['value' => 'first release'])
+            ->and($loaded->read('test.data'))->toBe(['value' => 'first release']);
+    } finally { removeBuildStoreTestRoot($root); }
+});

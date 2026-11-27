@@ -9,13 +9,19 @@ use RuntimeException;
 /** Immutable selection of one published generation, retained for the lifetime of a bootstrap. */
 final readonly class PreparedBuild
 {
+    private string $directory;
+
     /** @internal Selected and validated by BuildStore::load() or publish(). */
     public function __construct(
-        private string $directory,
+        string $directory,
         public string $generation,
         private array $artifacts,
         private array $requiredArtifacts = [],
-    ) {}
+    ) {
+        // A release alias may move; this reader retains the already selected files.
+        // Empty or skipped-only publications may not have created their directory yet.
+        $this->directory = realpath($directory) ?: $directory;
+    }
 
     public function read(string $id, int $schemaVersion = 1): ?array
     {
