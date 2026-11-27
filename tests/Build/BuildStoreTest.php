@@ -315,3 +315,82 @@ it('publishes and cleans immutable generations when the OPcache API is restricte
             ]);
     } finally { removeBuildStoreTestRoot($root); }
 });
+
+it('pins a relative store location before contexts and readers cross working directories', function (): void {
+    $root = sys_get_temp_dir() . '/app_build_relative_' . bin2hex(random_bytes(8));
+    mkdir($root . '/first', 0700, true);
+    mkdir($root . '/second', 0700, true);
+    $previousDirectory = getcwd();
+    try {
+        $otherStore = new BuildStore($root . '/second/cache');
+        $other = $otherStore->begin();
+        $other->write('test.data', ['value' => 'other application']);
+        $otherPublished = $otherStore->publish($other);
+
+        chdir($root . '/first');
+        $store = new BuildStore('cache');
+        $first = $store->begin();
+        chdir($root . '/second');
+        $first->write('test.data', ['value' => 'first']);
+        $pinned = $store->publish($first);
+
+        expect((new BuildStore($root . '/first/cache'))->load()?->generation)->toBe($pinned->generation)
+            ->and($store->load()?->generation)->toBe($pinned->generation);
+        chdir($root . '/first');
+        $loaded = $store->load();
+        chdir($root . '/second');
+        expect($pinned->read('test.data'))->toBe(['value' => 'first'])
+            ->and($loaded->read('test.data'))->toBe(['value' => 'first']);
+
+        $second = $store->begin();
+        $second->write('test.data', ['value' => 'second']);
+        $published = $store->publish($second);
+        expect((new BuildStore($root . '/first/cache'))->load()?->generation)->toBe($published->generation);
+        $store->clean();
+        expect((new BuildStore($root . '/first/cache'))->load())->toBeNull()
+            ->and($otherStore->load()?->generation)->toBe($otherPublished->generation)
+            ->and($pinned->read('test.data'))->toBe(['value' => 'first'])
+            ->and($published->read('test.data'))->toBe(['value' => 'second']);
+    } finally {
+        chdir($previousDirectory);
+        removeBuildStoreTestRoot($root);
+    }
+});
+
+it('preserves absolute filesystem paths containing a symlink followed by a parent segment', function (): void {
+    if (DIRECTORY_SEPARATOR !== '/') { test()->markTestSkipped('Requires POSIX directory symlinks.'); }
+    $root = sys_get_temp_dir() . '/app_build_absolute_path_' . bin2hex(random_bytes(8));
+    mkdir($root . '/target/nested', 0700, true);
+    symlink($root . '/target/nested', $root . '/alias');
+    try {
+        $physicalStore = new BuildStore($root . '/target/cache');
+        $build = $physicalStore->begin();
+        $build->write('test.data', ['value' => 'native location']);
+        $published = $physicalStore->publish($build);
+        expect((new BuildStore($root . '/alias/../cache'))->load()?->generation)->toBe($published->generation)
+            ->and((new BuildStore($root . '/cache'))->load())->toBeNull();
+    } finally { removeBuildStoreTestRoot($root); }
+});
+
+it('uses absolute storage without requiring an available current working directory', function (): void {
+    if (DIRECTORY_SEPARATOR !== '/') { test()->markTestSkipped('Requires POSIX removal of the current directory.'); }
+    $root = sys_get_temp_dir() . '/app_build_missing_cwd_' . bin2hex(random_bytes(8));
+    mkdir($root . '/removed', 0700, true);
+    $previousDirectory = getcwd();
+    try {
+        chdir($root . '/removed');
+        rmdir($root . '/removed');
+        expect(getcwd())->toBeFalse();
+
+        $store = new BuildStore($root . '/cache');
+        $build = $store->begin();
+        $build->write('test.data', ['value' => 'absolute location']);
+        $published = $store->publish($build);
+        expect($store->load()?->generation)->toBe($published->generation)
+            ->and($published->read('test.data'))->toBe(['value' => 'absolute location']);
+    } finally {
+        chdir($previousDirectory);
+        removeBuildStoreTestRoot($root);
+    }
+});
+

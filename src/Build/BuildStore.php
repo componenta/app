@@ -18,13 +18,17 @@ final class BuildStore
     private const int VERSION = 2;
     // A leading underscore is outside the artifact-ID namespace.
     private const string MANIFEST_FILE = '_manifest.php';
+    private readonly string $directory;
     private readonly object $owner;
     /** @var list<string> */
     private readonly array $requiredArtifacts;
 
-    /** @param list<string> $requiredArtifacts Explicit deployment policy; independent of APP_ENV. */
+    /**
+     * Relative directories are resolved once, before any build context or reader is created.
+     * @param list<string> $requiredArtifacts Explicit deployment policy; independent of APP_ENV.
+     */
     public function __construct(
-        private readonly string $directory,
+        string $directory,
         private readonly ?string $identity = null,
         array $requiredArtifacts = [],
     ) {
@@ -43,6 +47,7 @@ final class BuildStore
             $policy[$id] = $id;
         }
         $this->requiredArtifacts = array_values($policy);
+        $this->directory = self::anchorDirectory($directory);
         $this->owner = new stdClass();
     }
 
@@ -170,6 +175,32 @@ final class BuildStore
     private function generationDirectory(string $generation): string
     {
         return $this->directory . '/generations/' . $generation;
+    }
+
+    private static function anchorDirectory(string $directory): string
+    {
+        if ((DIRECTORY_SEPARATOR === '/' && $directory[0] === '/')
+            || (DIRECTORY_SEPARATOR === '\\' && preg_match('~\A(?:[A-Za-z]:[\\\\/]|[\\\\/]{2})~', $directory) === 1)
+        ) {
+            return $directory;
+        }
+
+        // Keep native filesystem semantics: "symlink/.." must not be collapsed.
+        $relative = $directory;
+        if (DIRECTORY_SEPARATOR === '\\' && preg_match('~\A([A-Za-z]:)~', $directory, $drive) === 1) {
+            $base = realpath($drive[1] . '.');
+            $relative = substr($directory, 2);
+        } elseif (DIRECTORY_SEPARATOR === '\\' && str_contains('/\\', $directory[0])) {
+            $base = realpath(DIRECTORY_SEPARATOR);
+            $relative = ltrim($directory, '/\\');
+        } else {
+            $base = getcwd();
+        }
+        if ($base === false) {
+            throw new RuntimeException('Cannot resolve the application build directory.');
+        }
+
+        return rtrim($base, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . $relative;
     }
 
     private static function validArtifacts(mixed $artifacts): bool
