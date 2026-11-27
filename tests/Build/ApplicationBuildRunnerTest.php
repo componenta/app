@@ -99,7 +99,7 @@ it('builds with fresh providers before container creation without executing boot
         $container = (new ContainerFactory())->create($source->config, $source->dependencies);
         expect($container->has(ConfigKey::PREPARED_BUILD))->toBeFalse();
 
-        ApplicationBuildRunner::clean($paths, $environment);
+        ApplicationBuildRunner::clean($paths);
         expect((new BuildStore($root . '/var/cache/build', 'release'))->load())->toBeNull()
             ->and($first->read(ConfigKey::CONFIG_PROVIDERS_ARTIFACT))->toBe([BuildRunnerInitialProvider::class])
             ->and(getcwd())->toBe($previousDirectory);
@@ -138,6 +138,29 @@ it('restores the caller directory when source configuration fails', function ():
             expect($caught)->toBe($failure)->and(getcwd())->toBe($previous);
         }
     } finally { rmdir($root); }
+});
+
+it('cleans without loading a broken environment and retains pinned artifacts', function (): void {
+    $root = sys_get_temp_dir() . '/app_clean_environment_' . bin2hex(random_bytes(8));
+    $paths = new PathResolver($root);
+    $store = new BuildStore($paths->resolve(ConfigKey::DEFAULT_CACHE_BUILD_DIR), 'previous-release');
+    try {
+        $build = $store->begin();
+        $build->write('test.data', ['value' => 'published']);
+        $pinned = $store->publish($build);
+        file_put_contents($root . '/.env', 'THIS IS NOT A VALID ENVIRONMENT ASSIGNMENT');
+
+        ApplicationBuildRunner::clean($paths);
+        ApplicationBuildRunner::clean($paths);
+
+        expect($store->load())->toBeNull()
+            ->and($pinned->read('test.data'))->toBe(['value' => 'published'])
+            ->and(file_get_contents($root . '/.env'))->toBe('THIS IS NOT A VALID ENVIRONMENT ASSIGNMENT');
+    } finally {
+        $entries = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST);
+        foreach ($entries as $entry) { $entry->isDir() ? rmdir($entry->getPathname()) : unlink($entry->getPathname()); }
+        rmdir($root);
+    }
 });
 
 it('does not bypass required artifact readers when core discovery is invalid', function (): void {

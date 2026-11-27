@@ -6,6 +6,7 @@ namespace Componenta\App\Build;
 
 use Componenta\App\Config\ConfigDefinitionInterface;
 use Componenta\App\Config\ConfigFactory;
+use Componenta\App\ConfigKey;
 use Componenta\Config\Environment;
 use Componenta\DI\ContainerFactory;
 use Componenta\Stdlib\PathResolverInterface;
@@ -35,9 +36,10 @@ final class ApplicationBuildRunner
         }
     }
 
-    public static function clean(PathResolverInterface $paths, ?Environment $environment = null): void
+    public static function clean(PathResolverInterface $paths): void
     {
-        ConfigFactory::buildStore($paths, $environment)->clean();
+        // Unpublishing needs only the store location, even when dotenv is invalid.
+        (new BuildStore($paths->resolve(ConfigKey::DEFAULT_CACHE_BUILD_DIR)))->clean();
     }
 
     private function __construct() {}

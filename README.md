@@ -159,7 +159,7 @@ Pass the same list to `ApplicationBuildRunner::build(..., requiredArtifacts: [..
 
 ### Cleanup and deployment
 
-`ApplicationBuildRunner::clean($paths)` and `app:clean` remove only the current pointer. They do not instantiate builders or load artifact PHP. Existing workers retain their pinned generations; new bootstraps select source, or fail if their required-artifact policy demands a publication. Successful rebuilds need no preliminary clean.
+`ApplicationBuildRunner::clean($paths)` and `app:clean` remove only the current pointer. Cleanup accepts the path resolver alone: it does not load dotenv, validate the release identity, instantiate builders or load artifact PHP. A broken environment file therefore does not prevent unpublishing. Existing workers retain their pinned generations; new bootstraps select source, or fail if their required-artifact policy demands a publication. Successful rebuilds need no preliminary clean.
 
 Old generations and failed staging generations are intentionally retained. Remove them offline only after no worker can still reference them, or retire the complete release directory. No online garbage collector is provided. `ApplicationBuildCleanerInterface` and participant-owned cleanup were removed.
 
