@@ -126,7 +126,7 @@ The core artifacts are:
 | `app.config-providers` | Ordered `#[AsConfig]` provider class names |
 | `app.boot` | Public method names carrying `#[Boot]`, grouped by class |
 
-Runtime integrations own additional IDs. Their readers use `PreparedBuild::read($id, $schemaVersion)`: an absent, skipped, unreadable or incompatible optional artifact returns `null` and permits the package's source fallback. The selected snapshot exposes skip reasons through `skipped()`.
+Runtime integrations own additional IDs. Their readers use `PreparedBuild::read($id, $schemaVersion)`: an absent, skipped, unreadable or incompatible optional artifact returns `null` and permits the package's source fallback. The selected snapshot exposes skip reasons through `skipped()`. Domain readers must also reject invalid required payloads after their own schema validation; use `PreparedBuild::isRequired($id)` to decide whether fallback is permitted.
 
 ### Fresh build bootstrap
 
